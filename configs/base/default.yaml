@@ -1,0 +1,19 @@
+dataset:
+  name: cifar10
+  num_classes: 10
+  mean: [0.4914, 0.4822, 0.4465]
+  std: [0.2470, 0.2435, 0.2616]
+  test_set_size: 10000
+
+attack_default:
+  epsilon: 0.03137254901960784
+  alpha: 0.00784313725490196
+  norm: Linf
+
+seeds: [42, 123, 456, 789, 1024]
+hardware: {device: cuda, vram_gb: 4}
+
+mlflow:
+  tracking_uri: file:./mlruns
+  experiment_name: pgd_cifar10_multiarch
+

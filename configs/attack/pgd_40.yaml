@@ -1,0 +1,7 @@
+name: PGD
+num_steps: 40
+random_start: true
+epsilon: ${base.attack_default.epsilon}
+alpha: ${base.attack_default.alpha}
+norm: ${base.attack_default.norm}
+

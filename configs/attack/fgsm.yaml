@@ -1,0 +1,7 @@
+name: FGSM
+num_steps: 1
+random_start: false
+epsilon: ${base.attack_default.epsilon}
+alpha: ${base.attack_default.epsilon}
+norm: ${base.attack_default.norm}
+

@@ -1,0 +1,7 @@
+pairs:
+  - {arch: resnet18, surrogate_seed: 42, victim_seed: 123}
+  - {arch: wrn_34_10, surrogate_seed: 42, victim_seed: 123}
+  - {arch: resnet50, surrogate_seed: 42, victim_seed: 123}
+  - {arch: vgg16_bn, surrogate_seed: 42, victim_seed: 123}
+attack: pgd_10
+

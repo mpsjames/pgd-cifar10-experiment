@@ -1,0 +1,5 @@
+arch: vgg16_bn
+training:
+  batch_size: 64
+  use_amp: true
+

@@ -1,0 +1,10 @@
+defaults:
+  - base: default
+  - architecture: resnet18
+  - attack: pgd_10
+  - training: clean
+  - _self_
+
+seed: 42
+output_dir: ./results
+

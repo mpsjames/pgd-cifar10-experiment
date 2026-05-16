@@ -1,0 +1,10 @@
+mode: clean
+epochs: 100
+batch_size: 128
+lr: 0.1
+weight_decay: 0.0005
+optimizer: SGD
+scheduler: cosine
+momentum: 0.9
+use_amp: true
+
