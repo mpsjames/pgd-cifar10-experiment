@@ -11,6 +11,7 @@ from src.experiments.config import (
     AttackConfig,
     ExperimentConfig,
     ModelConfig,
+    TrackingConfig,
     TrainingConfig,
 )
 
@@ -57,12 +58,23 @@ def load_experiment_config(
     if training_cfg is not None and arch_cfg.get("training") is not None:
         training_cfg = _override_training_batch(training_cfg, arch_cfg.training)
 
+    model_overrides = arch_cfg.get("model")
+    if model_overrides is None:
+        model_overrides = {}
     model_cfg = ModelConfig(
-        arch=str(arch_cfg.arch),  # type: ignore[arg-type]
+        arch=str(arch_cfg.arch),  # type: ignore[arg-type]  # OmegaConf loses Literal type info at runtime
         checkpoint_path=None,
         num_classes=int(base.dataset.num_classes),
-        cifar_mean=tuple(float(v) for v in base.dataset.mean),  # type: ignore[arg-type]
-        cifar_std=tuple(float(v) for v in base.dataset.std),  # type: ignore[arg-type]
+        cifar_mean=tuple(float(v) for v in base.dataset.mean),  # type: ignore[arg-type]  # generator loses tuple Literal
+        cifar_std=tuple(float(v) for v in base.dataset.std),  # type: ignore[arg-type]  # generator loses tuple Literal
+        image_size=_optional_int(model_overrides, "image_size"),
+        patch_size=_optional_int(model_overrides, "patch_size"),
+        embed_dim=_optional_int(model_overrides, "embed_dim"),
+        depth=_optional_int(model_overrides, "depth"),
+        num_heads=_optional_int(model_overrides, "num_heads"),
+        mlp_ratio=_optional_float(model_overrides, "mlp_ratio"),
+        dropout=_optional_float(model_overrides, "dropout"),
+        attn_dropout=_optional_float(model_overrides, "attn_dropout"),
     )
     return ExperimentConfig(
         experiment_id=experiment_id,
@@ -70,6 +82,7 @@ def load_experiment_config(
         model=model_cfg,
         attack=attack_cfg,
         training=training_cfg,
+        tracking=_load_tracking_config(base),
         output_dir=Path(output_dir if output_dir is not None else root.output_dir),
     )
 
@@ -95,22 +108,25 @@ def load_attack_config(name: str, config_root: Path = CONFIG_ROOT) -> AttackConf
     resolved = OmegaConf.to_container(cfg.attack, resolve=True)
     if not isinstance(resolved, dict):
         raise TypeError(f"Attack config {name} did not resolve to a mapping")
-    _require_keys(
-        resolved,
-        {"name", "epsilon", "alpha", "num_steps", "random_start", "norm"},
-        f"attack/{name}.yaml",
-    )
-    extra = set(resolved) - {
-        "name",
-        "epsilon",
-        "alpha",
-        "num_steps",
-        "random_start",
-        "norm",
-    }
+    required_keys = {"name", "epsilon", "alpha", "num_steps", "random_start", "norm"}
+    optional_keys = {
+        "p_init",
+        "loss",
+        "seed",
+        "rho",
+        "n_restarts",
+    }  # Attack-family-specific; ignored by other attacks.
+    _require_keys(resolved, required_keys, f"attack/{name}.yaml")
+    extra = set(resolved) - (required_keys | optional_keys)
     if extra:
         raise ValueError(
             f"Unexpected AttackConfig keys in attack/{name}.yaml: {sorted(extra)}"
+        )
+    loss = resolved.get("loss")
+    if loss is not None and loss not in {"margin", "cross_entropy"}:
+        raise ValueError(
+            f"attack/{name}.yaml: 'loss' must be 'margin' or 'cross_entropy', "
+            f"got {loss!r}"
         )
     return AttackConfig(
         name=str(resolved["name"]),
@@ -118,7 +134,14 @@ def load_attack_config(name: str, config_root: Path = CONFIG_ROOT) -> AttackConf
         alpha=float(resolved["alpha"]),
         num_steps=int(resolved["num_steps"]),
         random_start=bool(resolved["random_start"]),
-        norm=str(resolved["norm"]),  # type: ignore[arg-type]
+        norm=str(resolved["norm"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["Linf"] at runtime
+        p_init=float(resolved["p_init"]) if resolved.get("p_init") is not None else None,
+        loss=loss,  # type: ignore[arg-type]  # mypy can't narrow str to Literal["margin","cross_entropy"]
+        seed=int(resolved["seed"]) if resolved.get("seed") is not None else None,
+        rho=float(resolved["rho"]) if resolved.get("rho") is not None else None,
+        n_restarts=int(resolved["n_restarts"])
+        if resolved.get("n_restarts") is not None
+        else None,
     )
 
 
@@ -150,7 +173,12 @@ def load_training_config(name: str, config_root: Path = CONFIG_ROOT) -> Training
             alpha=float(inner["alpha"]),
             num_steps=int(inner["num_steps"]),
             random_start=bool(inner["random_start"]),
-            norm=str(inner["norm"]),  # type: ignore[arg-type]
+            norm=str(inner["norm"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["Linf"] at runtime
+            seed=int(inner["seed"]) if inner.get("seed") is not None else None,
+            rho=float(inner["rho"]) if inner.get("rho") is not None else None,
+            n_restarts=int(inner["n_restarts"])
+            if inner.get("n_restarts") is not None
+            else None,
         )
     milestones_raw = resolved.get("lr_milestones")
     lr_milestones: tuple[int, ...] | None
@@ -163,16 +191,16 @@ def load_training_config(name: str, config_root: Path = CONFIG_ROOT) -> Training
             f"lr_milestones must be a list in training/{name}.yaml, got {type(milestones_raw).__name__}"
         )
     return TrainingConfig(
-        mode=str(resolved["mode"]),  # type: ignore[arg-type]
+        mode=str(resolved["mode"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["clean","adversarial"]
         epochs=int(resolved["epochs"]),
         batch_size=int(resolved["batch_size"]),
         lr=float(resolved["lr"]),
         weight_decay=float(resolved["weight_decay"]),
-        optimizer=str(resolved["optimizer"]),  # type: ignore[arg-type]
-        scheduler=str(resolved["scheduler"]),  # type: ignore[arg-type]
+        optimizer=str(resolved["optimizer"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["SGD"]
+        scheduler=str(resolved["scheduler"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["cosine","multistep"]
         momentum=float(resolved.get("momentum", 0.9)),
         use_amp=bool(resolved.get("use_amp", True)),
-        grad_clip=resolved.get("grad_clip"),  # type: ignore[arg-type]
+        grad_clip=resolved.get("grad_clip"),  # type: ignore[arg-type]  # dict[str,Any] lookup loses float|None
         inner_attack=inner_attack,
         resume_from=Path(resolved["resume_from"])
         if resolved.get("resume_from")
@@ -215,6 +243,48 @@ def _override_training_batch(
         lr_milestones=config.lr_milestones,
         lr_gamma=config.lr_gamma,
     )
+
+
+def _load_tracking_config(base: DictConfig) -> TrackingConfig:
+    raw = base.get("mlflow")
+    if raw is None:
+        return TrackingConfig(
+            enable=True,
+            tracking_uri="http://127.0.0.1:5000",
+            experiment_name="pgd_cifar10_multiarch",
+        )
+    required_keys = {"tracking_uri", "experiment_name"}
+    optional_keys = {"enable", "http_request_timeout_s", "http_request_max_retries"}
+    resolved = OmegaConf.to_container(raw, resolve=True)
+    if not isinstance(resolved, dict):
+        raise TypeError("base/default.yaml mlflow section did not resolve to a mapping")
+    _require_keys(resolved, required_keys, "base/default.yaml:mlflow")
+    extra = set(resolved) - (required_keys | optional_keys)
+    if extra:
+        raise ValueError(
+            f"Unexpected MLflow config keys in base/default.yaml: {sorted(extra)}"
+        )
+    return TrackingConfig(
+        enable=bool(resolved.get("enable", True)),
+        tracking_uri=str(resolved["tracking_uri"]),
+        experiment_name=str(resolved["experiment_name"]),
+        http_request_timeout_s=int(resolved["http_request_timeout_s"])
+        if resolved.get("http_request_timeout_s") is not None
+        else None,
+        http_request_max_retries=int(resolved["http_request_max_retries"])
+        if resolved.get("http_request_max_retries") is not None
+        else None,
+    )
+
+
+def _optional_int(data: Any, key: str) -> int | None:
+    value = data.get(key) if hasattr(data, "get") else None
+    return int(value) if value is not None else None
+
+
+def _optional_float(data: Any, key: str) -> float | None:
+    value = data.get(key) if hasattr(data, "get") else None
+    return float(value) if value is not None else None
 
 
 def _require_keys(data: dict[str, object], keys: set[str], source: str) -> None:

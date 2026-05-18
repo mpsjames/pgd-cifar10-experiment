@@ -16,12 +16,24 @@ class AttackConfig:
     """Describe one attack configuration loaded from `configs/attack/`.
 
     Fields:
-        name: Attack family name such as `"FGSM"`, `"BIM"`, or `"PGD"`.
+        name: Attack family name such as `"FGSM"`, `"BIM"`, `"PGD"`, or
+            `"Square"`.
         epsilon: Linf budget in normalized image space `[0, 1]`.
-        alpha: Step size in normalized image space `[0, 1]`.
+        alpha: Step size in normalized image space `[0, 1]`. Unused by Square.
         num_steps: Number of iterative updates. FGSM effectively uses 1.
+            For `Square`, this is the per-sample query budget.
         random_start: When True, initialize uniformly inside the epsilon ball.
         norm: Perturbation norm. Only `"Linf"` is supported in this project.
+        p_init: Square-only initial fraction of pixels per perturbed square;
+            `None` for non-Square attacks.
+        loss: Square-only inner loss name (`"margin"` or `"cross_entropy"`);
+            `None` for non-Square attacks.
+        seed: Square-only per-attack RNG seed used to build a local
+            `torch.Generator` (principles §4.1: no global-RNG mutation).
+            `None` for non-Square attacks.
+        rho: APGD-only checkpoint-progress threshold. `None` for other attacks.
+        n_restarts: APGD-only number of random restarts. `None` for other
+            attacks.
     """
 
     name: str
@@ -30,6 +42,31 @@ class AttackConfig:
     num_steps: int
     random_start: bool
     norm: Literal["Linf"]
+    p_init: float | None = None
+    loss: Literal["margin", "cross_entropy"] | None = None
+    seed: int | None = None
+    rho: float | None = None
+    n_restarts: int | None = None
+
+
+@dataclass(frozen=True)
+class TrackingConfig:
+    """Describe experiment tracking sinks loaded from `configs/base/default.yaml`.
+
+    Fields:
+        enable: Whether MLflow HTTP tracking is enabled. JSON and file logging
+            remain active regardless of this flag.
+        tracking_uri: MLflow tracking-server HTTP API URL.
+        experiment_name: MLflow experiment name and JSON mirror namespace.
+        http_request_timeout_s: Optional MLflow HTTP request timeout.
+        http_request_max_retries: Optional MLflow HTTP retry count.
+    """
+
+    enable: bool
+    tracking_uri: str
+    experiment_name: str
+    http_request_timeout_s: int | None = None
+    http_request_max_retries: int | None = None
 
 
 @dataclass(frozen=True)
@@ -37,7 +74,7 @@ class ModelConfig:
     """Describe model-construction settings shared across experiments.
 
     Fields:
-        arch: Architecture key consumed by `ARCH_BUILDERS`.
+        arch: Architecture key consumed by `build_model` and the legacy `ARCH_BUILDERS` registry.
         checkpoint_path: Optional external checkpoint path. Most entry points
             construct the canonical path separately and leave this as `None`.
         num_classes: Number of output classes; CIFAR-10 uses 10.
@@ -46,11 +83,19 @@ class ModelConfig:
             `NormalizedModel`.
     """
 
-    arch: Literal["resnet18", "wrn_34_10", "resnet50", "vgg16_bn"]
+    arch: Literal["resnet18", "wrn_34_10", "vit_tiny"]
     checkpoint_path: Path | None
     num_classes: int = 10
     cifar_mean: tuple[float, float, float] = (0.4914, 0.4822, 0.4465)
     cifar_std: tuple[float, float, float] = (0.2470, 0.2435, 0.2616)
+    image_size: int | None = None
+    patch_size: int | None = None
+    embed_dim: int | None = None
+    depth: int | None = None
+    num_heads: int | None = None
+    mlp_ratio: float | None = None
+    dropout: float | None = None
+    attn_dropout: float | None = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +149,7 @@ class ExperimentConfig:
         model: Model-construction settings.
         attack: Optional attack settings for evaluation-style entry points.
         training: Optional training settings for training entry points.
+        tracking: Experiment tracking settings.
         output_dir: Root output directory declared by the composed config.
     """
 
@@ -112,4 +158,5 @@ class ExperimentConfig:
     model: ModelConfig
     attack: AttackConfig | None
     training: TrainingConfig | None
+    tracking: TrackingConfig
     output_dir: Path
