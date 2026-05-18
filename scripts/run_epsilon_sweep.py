@@ -12,10 +12,10 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from src.attacks.factory import build_attack
 from src.evaluation.runner import AttackEvaluator
+from src.experiments.checkpoint_paths import adv_checkpoint_path, clean_checkpoint_path
 from src.experiments.config import AttackConfig
 from src.experiments.config_loader import load_attack_config, load_experiment_config
-from src.experiments.notebook_reports import _load_model_from_path
-from src.models.builders import ARCH_BUILDERS, build_model, wrap_with_normalization
+from src.models.builders import build_normalized_model, load_model_from_checkpoint
 from src.tracking.mlflow_logger import ExperimentTracker
 from src.utils.seed import set_all_seeds
 
@@ -128,12 +128,8 @@ def _smoke_loader(batch_size: int, num_classes: int) -> DataLoader:
 
 def _checkpoint_path(arch: str, seed: int, variant: str) -> Path:
     if variant == "adv":
-        return Path("checkpoints/adv") / f"{arch}_apgd_at_seed{seed}.pt"
-    return Path("checkpoints/clean") / f"{arch}_seed{seed}.pt"
-
-
-def _fresh_model_random(exp_config):
-    return wrap_with_normalization(build_model(exp_config.model), exp_config.model)
+        return adv_checkpoint_path(arch, seed)
+    return clean_checkpoint_path(arch, seed)
 
 
 def _load_checkpoint_or_smoke_model(
@@ -141,10 +137,10 @@ def _load_checkpoint_or_smoke_model(
 ):
     ckpt_path = _checkpoint_path(arch, seed, variant)
     if ckpt_path.exists():
-        return _load_model_from_path(arch, ckpt_path)
+        return load_model_from_checkpoint(exp_config.model, ckpt_path)
     if smoke:
         print(f"WARNING: smoke run on random weights; checkpoint not found: {ckpt_path}")
-        return _fresh_model_random(exp_config)
+        return build_normalized_model(exp_config.model)
     raise FileNotFoundError(ckpt_path)
 
 

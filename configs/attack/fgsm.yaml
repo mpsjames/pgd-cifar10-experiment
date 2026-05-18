@@ -1,7 +1,10 @@
+# FGSMAttack reads only `epsilon` (single sign-of-gradient step that saturates
+# the budget). `alpha` is unused at runtime; we set it to the project-wide
+# standard step size so AttackConfig's `alpha` field has consistent meaning
+# across all attack configs.
 name: FGSM
 num_steps: 1
 random_start: false
 epsilon: ${base.attack_default.epsilon}
-alpha: ${base.attack_default.epsilon}
+alpha: ${base.attack_default.alpha}
 norm: ${base.attack_default.norm}
-

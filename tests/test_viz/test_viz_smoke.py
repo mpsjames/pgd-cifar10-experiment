@@ -18,9 +18,8 @@ def test_perturbation_panel_no_crash() -> None:
 
 
 def test_gradcam_renders_for_resnet18_smoke() -> None:
-    model = wrap_with_normalization(
-        ARCH_BUILDERS["resnet18"](10), ModelConfig("resnet18", None)
-    )
+    model_config = ModelConfig("resnet18", None)
+    model = wrap_with_normalization(ARCH_BUILDERS["resnet18"](model_config), model_config)
     x = torch.rand(1, 3, 32, 32)
     heatmap = compute_gradcam(model, "resnet18", x)
     assert heatmap.shape == (1, 32, 32)

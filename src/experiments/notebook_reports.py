@@ -16,37 +16,41 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import zipfile
 from dataclasses import FrozenInstanceError
+from functools import lru_cache
 from pathlib import Path
-from typing import Iterable
-
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
+from src.attacks.factory import build_attack
 from src.attacks.fgsm import FGSMAttack
 from src.attacks.pgd import PGDAttack
 from src.attacks.verify import verify_perturbation
 from src.evaluation.runner import AttackEvaluator, EvaluationResult
-from src.evaluation.statistics import aggregate_seeds, one_sided_t_test
+from src.evaluation.statistics import aggregate_scalar_values, aggregate_seeds, one_sided_t_test
 from src.experiments.adversarial_training import requires_single_seed_disclosure
 from src.experiments.architecture_comparison import compare_wrn_vs_resnet18
+from src.experiments.checkpoint_paths import adv_checkpoint_path, clean_checkpoint_path
 from src.experiments.config import AttackConfig
 from src.experiments.config_loader import (
     load_attack_config,
     load_experiment_config,
     load_training_config,
 )
-from src.models.builders import ARCH_BUILDERS, wrap_with_normalization
+from src.models.builders import build_model, load_model_from_checkpoint, wrap_with_normalization
 from src.models.gradcam_layers import get_gradcam_target  # noqa: F401  (re-exported for notebooks)
 from src.utils.seed import set_all_seeds
 from src.viz.gradcam import compute_gradcam
 from src.viz.perturbation_panels import make_perturbation_panel
 
 
-ARCHES = ["resnet18", "wrn_34_10", "resnet50", "vgg16_bn"]
+LOGGER = logging.getLogger(__name__)
+
+ARCHES = ["resnet18", "wrn_34_10", "vit_tiny"]
 SEEDS = [42, 123, 456, 789, 1024]
 EPSILON_SWEEP_SEEDS = [42, 123, 456]
 EPSILON_SWEEP_ARCHES = ["resnet18", "wrn_34_10"]
@@ -59,14 +63,12 @@ SMOKE_SAMPLE_SIZE = 8
 CLEAN_ACC_GATES = {
     "resnet18": 0.93,
     "wrn_34_10": 0.95,
-    "resnet50": 0.93,
-    "vgg16_bn": 0.91,
+    "vit_tiny": 0.85,
 }
 AT_GATES = {
     "resnet18": (0.80, 0.42),
     "wrn_34_10": (0.83, 0.48),
-    "resnet50": (0.80, 0.42),
-    "vgg16_bn": (0.76, 0.35),
+    "vit_tiny": (0.75, 0.40),
 }
 
 
@@ -121,13 +123,9 @@ def nb02_clean_models() -> Path:
         paths = _clean_checkpoint_paths(arch)
         if len(paths) == len(SEEDS):
             accs = [_clean_accuracy(arch, p) for p in paths]
-            stats = aggregate_seeds(
-                _fake_results_with_field(accs, "asr"), single_seed_ok=False
-            )
-            mean = (
-                1.0 - stats["asr"]["mean"]
-            )  # asr=clean_err here; clean_acc = 1 - mean
-            std = stats["asr"]["std"]
+            stats = aggregate_scalar_values(accs, single_seed_ok=False)
+            mean = stats["mean"]
+            std = stats["std"]
             gate = CLEAN_ACC_GATES[arch]
             gate_status = (
                 "pass" if mean >= gate and (std is None or std <= 0.006) else "fail"
@@ -186,6 +184,16 @@ def nb03_attack_validation() -> Path:
     }
     for attack in attacks:
         x_adv = attack.perturb(model, x, y)
+        delta = (x_adv - x).abs().flatten(1).max(dim=1).values
+        invariants["linf_holds"] = bool(
+            invariants["linf_holds"]
+            and (delta <= attack.config.epsilon + 1e-6).all()
+        )
+        invariants["pixel_domain_holds"] = bool(
+            invariants["pixel_domain_holds"]
+            and (x_adv >= 0).all()
+            and (x_adv <= 1).all()
+        )
         verify_perturbation(x, x_adv, attack.config.epsilon, attack.config.norm)
     # ε=0 boundary
     pgd_zero_cfg = AttackConfig("PGD", 0.0, 0.0, 1, False, "Linf")
@@ -212,26 +220,58 @@ def nb03_attack_validation() -> Path:
 # ---------------------------------------------------------------------------
 
 
+NB04_ATTACK_NAMES = [
+    "fgsm",
+    "bim_10",
+    "pgd_10",
+    "pgd_40",
+    "pgd_100",
+    "apgd_ce_10",
+    "apgd_ce_100",
+]
+
+
 def nb04_main_results() -> tuple[Path, Path]:
-    """For each architecture × {FGSM, BIM-10, PGD-10/40/100}, aggregate over seeds."""
+    """For each architecture × {FGSM, BIM-10, PGD-10/40/100}, aggregate over seeds.
+
+    The CSV row schema is:
+        arch | attack | num_steps | asr_mean | asr_std | robust_acc_mean
+        | linf_actual_mean | epsilon_actual_ratio | time_per_image_ms_mean | n_runs
+
+    `epsilon_actual_ratio` (principles §4.8) should sit near 1.0 for iterative
+    attacks under a full ε budget; values far below 1.0 hint at under-utilized
+    budget or a verification bug.
+    """
     ensure_result_dirs()
     rows: list[dict[str, object]] = []
     per_attack_asr: dict[str, list[float]] = {}
     for arch in ARCHES:
-        for attack_name in ["fgsm", "bim_10", "pgd_10", "pgd_40", "pgd_100"]:
+        for attack_name in NB04_ATTACK_NAMES:
             results = _multi_seed_evaluation(arch, attack_name)
+            attack_cfg = load_attack_config(attack_name)
             # Plan §6: clean phases require ≥ 3 seeds. Fewer ⇒ pending.
             if len(results) >= 3:
                 stats = aggregate_seeds(results, single_seed_ok=False)
+                linf_mean = float(stats["linf_mean"]["mean"])
                 rows.append(
                     {
                         "arch": arch,
                         "attack": attack_name,
+                        "num_steps": attack_cfg.num_steps,
                         "asr_mean": f"{stats['asr']['mean']:.4f}",
                         "asr_std": f"{stats['asr']['std']:.4f}"
                         if stats["asr"]["std"] is not None
                         else "",
                         "robust_acc_mean": f"{stats['robust_acc']['mean']:.4f}",
+                        "linf_actual_mean": f"{linf_mean:.6f}",
+                        "epsilon_actual_ratio": (
+                            f"{linf_mean / attack_cfg.epsilon:.4f}"
+                            if attack_cfg.epsilon > 0
+                            else ""
+                        ),
+                        "time_per_image_ms_mean": (
+                            f"{float(stats['time_per_image_ms']['mean']):.3f}"
+                        ),
                         "n_runs": stats["asr"]["n"],
                     }
                 )
@@ -242,9 +282,13 @@ def nb04_main_results() -> tuple[Path, Path]:
                     {
                         "arch": arch,
                         "attack": attack_name,
+                        "num_steps": attack_cfg.num_steps,
                         "asr_mean": "",
                         "asr_std": "",
                         "robust_acc_mean": "",
+                        "linf_actual_mean": "",
+                        "epsilon_actual_ratio": "",
+                        "time_per_image_ms_mean": "",
                         "n_runs": len(results),
                     }
                 )
@@ -267,18 +311,21 @@ def nb04_main_results() -> tuple[Path, Path]:
             json.dumps(tests, indent=2), encoding="utf-8"
         )
 
-    fig, ax = plt.subplots(figsize=(6, 3))
-    visible = [r for r in rows if r["arch"] == "resnet18" and str(r["asr_mean"]) != ""]
-    if visible:
-        ax.bar(
-            [str(r["attack"]) for r in visible], [float(r["asr_mean"]) for r in visible]
-        )
-        ax.set_title(
-            "ResNet-18 white-box ASR on CIFAR-10 test (n=10000)\n"
-            "attacks={FGSM,BIM-10,PGD-10,PGD-40,PGD-100} | seeds={42,123,456,789,1024} | "
-            "bars=+-1 std across 5 seeds"
-        )
-    else:
+    fig_path = _render_nb04_main_figure(rows)
+    _render_nb04_time_vs_asr(rows)
+    return table_path, fig_path
+
+
+def _render_nb04_main_figure(rows: list[dict[str, object]]) -> Path:
+    """Grouped bar chart of ASR per attack across architectures.
+
+    Emits the `full-campaign-pending` placeholder when no row has populated
+    statistics.
+    """
+    fig_path = Path("results/figures/04_main.png")
+    visible = [r for r in rows if str(r["asr_mean"]) != ""]
+    fig, ax = plt.subplots(figsize=(7, 4))
+    if not visible:
         ax.text(
             0.5,
             0.5,
@@ -287,12 +334,116 @@ def nb04_main_results() -> tuple[Path, Path]:
             va="center",
             transform=ax.transAxes,
         )
-        ax.set_title("ResNet-18 white-box ASR on CIFAR-10 test (awaiting checkpoints)")
+        ax.set_title("White-box ASR on CIFAR-10 test (awaiting checkpoints)")
+        ax.set_ylabel("ASR")
+        fig.savefig(fig_path)
+        plt.close(fig)
+        return fig_path
+
+    archs = sorted({str(r["arch"]) for r in visible})
+    indices = np.arange(len(NB04_ATTACK_NAMES))
+    width = 0.8 / max(len(archs), 1)
+    for offset, arch in enumerate(archs):
+        means = []
+        stds = []
+        for attack in NB04_ATTACK_NAMES:
+            match = [
+                r
+                for r in visible
+                if r["arch"] == arch and r["attack"] == attack
+            ]
+            if match:
+                means.append(float(match[0]["asr_mean"]))
+                stds.append(
+                    float(match[0]["asr_std"]) if match[0]["asr_std"] else 0.0
+                )
+            else:
+                means.append(0.0)
+                stds.append(0.0)
+        ax.bar(
+            indices + (offset - (len(archs) - 1) / 2.0) * width,
+            means,
+            width,
+            yerr=stds,
+            label=arch,
+            capsize=2,
+        )
+    ax.set_xticks(indices)
+    ax.set_xticklabels(NB04_ATTACK_NAMES)
     ax.set_ylabel("ASR")
-    fig_path = Path("results/figures/04_main.png")
+    ax.set_title(
+        "White-box ASR on CIFAR-10 test (n=10000)\n"
+        "attacks={FGSM,BIM-10,PGD-10,PGD-40,PGD-100} | bars=+-1 std across seeds"
+    )
+    ax.legend(title="architecture", fontsize=8)
+    fig.tight_layout()
     fig.savefig(fig_path)
     plt.close(fig)
-    return table_path, fig_path
+    return fig_path
+
+
+def _render_nb04_time_vs_asr(rows: list[dict[str, object]]) -> Path:
+    """Scatter of mean time/image vs ASR, one point per (arch, attack).
+
+    Overlays the Square Attack baseline (from `08_query_black_box.csv`) when
+    available; otherwise notes the pending status on the figure.
+    """
+    fig_path = Path("results/figures/04_time_vs_asr.png")
+    visible = [
+        r
+        for r in rows
+        if str(r["asr_mean"]) != "" and str(r["time_per_image_ms_mean"]) != ""
+    ]
+    fig, ax = plt.subplots(figsize=(6, 4))
+    if not visible:
+        ax.text(
+            0.5,
+            0.5,
+            "full-campaign-pending",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        ax.set_title("Time-vs-ASR (awaiting checkpoints)")
+        fig.savefig(fig_path)
+        plt.close(fig)
+        return fig_path
+
+    archs = sorted({str(r["arch"]) for r in visible})
+    for arch in archs:
+        xs = [
+            float(r["time_per_image_ms_mean"])
+            for r in visible
+            if r["arch"] == arch
+        ]
+        ys = [float(r["asr_mean"]) for r in visible if r["arch"] == arch]
+        labels = [str(r["attack"]) for r in visible if r["arch"] == arch]
+        ax.scatter(xs, ys, label=arch)
+        for x, y, label in zip(xs, ys, labels, strict=True):
+            ax.annotate(label, (x, y), fontsize=7, alpha=0.7)
+
+    square_csv = Path("results/tables/08_query_black_box.csv")
+    if square_csv.exists():
+        with square_csv.open(encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get("asr_mean") and row.get("time_per_image_ms_mean"):
+                    ax.scatter(
+                        float(row["time_per_image_ms_mean"]),
+                        float(row["asr_mean"]),
+                        marker="x",
+                        color="black",
+                        label=f"square ({row.get('arch', '')}/{row.get('variant', '')})",
+                    )
+
+    ax.set_xlabel("Mean time per image (ms)")
+    ax.set_ylabel("ASR")
+    ax.set_title("Attack cost vs effectiveness — CIFAR-10 test")
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(fig_path)
+    plt.close(fig)
+    return fig_path
 
 
 # ---------------------------------------------------------------------------
@@ -404,7 +555,7 @@ def nb06_qualitative() -> Path:
     out = Path("results/figures/06_fgsm_bim_pgd_comparison.png")
     fig.savefig(out)
     plt.close(fig)
-    # Grad-CAM smoke for all 4 archs — uses ARCH_TO_GRADCAM_LAYER registry.
+    # Grad-CAM smoke for all supported archs — uses ARCH_TO_GRADCAM_LAYER registry.
     for arch in ARCHES:
         target_model = _load_clean_model(arch, SEEDS[0]) or _fresh_model(arch)
         target_model = target_model.to(device).eval()
@@ -416,7 +567,7 @@ def nb06_qualitative() -> Path:
 
 
 # ---------------------------------------------------------------------------
-# NB07a–d — Adversarial training (single-seed)
+# NB07a–c — Adversarial training (single-seed)
 # ---------------------------------------------------------------------------
 
 
@@ -430,9 +581,9 @@ def nb07_adversarial_training(arch: str) -> Path:
         Path to `results/tables/adv_training_{arch}.csv`.
     """
     ensure_result_dirs()
-    at_training_cfg = load_training_config("madry_at")
+    at_training_cfg = load_training_config("apgd_at")
     assert requires_single_seed_disclosure(at_training_cfg), (
-        "Madry AT training config must trigger single-seed disclosure (plan §6)"
+        "APGD AT training config must trigger single-seed disclosure (plan §6)"
     )
     ckpt = _at_checkpoint(arch, SEEDS[0])
     rows: list[dict[str, object]] = []
@@ -446,7 +597,7 @@ def nb07_adversarial_training(arch: str) -> Path:
             seed=SEEDS[0],
         )
         clean_gate, robust_gate = AT_GATES[arch]
-        disclosure = "single-seed AT (plan §6)"
+        disclosure = "single-seed APGD AT (plan §6)"
         if arch == "wrn_34_10":
             disclosure += (
                 "; check MLflow tag wrn_at_source=robustbench for fallback status"
@@ -472,9 +623,9 @@ def nb07_adversarial_training(arch: str) -> Path:
         stats = aggregate_seeds([pgd_result], single_seed_ok=True)
         assert stats["asr"]["note"] == "single-seed"
     else:
-        disclosure = "single-seed AT; full training pending"
+        disclosure = "single-seed APGD AT; full training pending"
         if arch == "wrn_34_10":
-            disclosure = "single-seed AT; RobustBench fallback documented if fallback_triggered=true"
+            disclosure = "single-seed APGD AT; RobustBench fallback documented if fallback_triggered=true"
         rows.append(
             {
                 "arch": arch,
@@ -506,20 +657,20 @@ def nb08_defense_synthesis() -> Path:
     ensure_result_dirs()
     rows: list[dict[str, object]] = []
     for arch in ARCHES:
-        clean_paths = _clean_checkpoint_paths(arch)
         at_path = _at_checkpoint(arch, SEEDS[0])
-        if not clean_paths or at_path is None:
+        clean_model = _load_clean_model(arch, SEEDS[0])
+        if clean_model is None or at_path is None:
             rows.append(
                 {
                     "arch": arch,
                     "attack": "PGD-10",
                     "clean_robust_acc": "",
                     "at_robust_acc": "",
+                    "delta": "",
                     "status": "full-campaign-pending",
                 }
             )
             continue
-        clean_model = _load_model_from_path(arch, clean_paths[0])
         at_model = _load_model_from_path(arch, at_path)
         pgd = PGDAttack(load_attack_config("pgd_10"))
         clean_eval = _evaluate_full(clean_model, pgd, sample_size=None, seed=SEEDS[0])
@@ -539,6 +690,119 @@ def nb08_defense_synthesis() -> Path:
     return path
 
 
+def nb08_query_black_box_table() -> Path:
+    """Aggregate Square Attack runs from MLflow into a query-black-box table.
+
+    Reads runs tagged `phase=black_box_query` and `attack=square`, groups them
+    by `(arch, variant, num_queries)`, and writes
+    `results/tables/08_query_black_box.csv`. Surfaces `full-campaign-pending`
+    when no real runs are available (principles §4.10).
+
+    Returns:
+        Path to the written CSV.
+    """
+    ensure_result_dirs()
+    rows = _read_square_mlflow_runs()
+    csv_path = Path("results/tables/08_query_black_box.csv")
+    if not rows:
+        _write_csv(
+            csv_path,
+            [
+                {
+                    "arch": "",
+                    "variant": "",
+                    "num_queries": "",
+                    "asr_mean": "",
+                    "asr_std": "",
+                    "robust_acc_mean": "",
+                    "time_per_image_ms_mean": "",
+                    "n_runs": 0,
+                    "status": "full-campaign-pending",
+                }
+            ],
+        )
+        return csv_path
+
+    grouped: dict[tuple[str, str, str], list[dict[str, float]]] = {}
+    for row in rows:
+        key = (
+            str(row.get("arch", "")),
+            str(row.get("variant", "")),
+            str(row.get("num_queries", "")),
+        )
+        grouped.setdefault(key, []).append(row)
+
+    summary_rows: list[dict[str, object]] = []
+    for (arch, variant, num_queries), runs in sorted(grouped.items()):
+        asrs = np.asarray([float(r["asr"]) for r in runs if r.get("asr") not in (None, "")])
+        robust = np.asarray(
+            [float(r["robust_acc"]) for r in runs if r.get("robust_acc") not in (None, "")]
+        )
+        times = np.asarray(
+            [
+                float(r["time_per_image_ms"])
+                for r in runs
+                if r.get("time_per_image_ms") not in (None, "")
+            ]
+        )
+        summary_rows.append(
+            {
+                "arch": arch,
+                "variant": variant,
+                "num_queries": num_queries,
+                "asr_mean": f"{float(asrs.mean()):.4f}" if asrs.size else "",
+                "asr_std": f"{float(asrs.std(ddof=1)):.4f}" if asrs.size >= 2 else "",
+                "robust_acc_mean": f"{float(robust.mean()):.4f}" if robust.size else "",
+                "time_per_image_ms_mean": f"{float(times.mean()):.3f}"
+                if times.size
+                else "",
+                "n_runs": int(asrs.size),
+                "status": "ok",
+            }
+        )
+    _write_csv(csv_path, summary_rows)
+    return csv_path
+
+
+def _read_square_mlflow_runs() -> list[dict[str, object]]:
+    """Pull Square Attack rows from MLflow runs written by run_black_box_square.py."""
+    try:
+        import mlflow
+    except ImportError:
+        LOGGER.warning("mlflow not installed; skipping Square Attack MLflow read")
+        return []
+    uri = _resolve_tracking_uri()
+    if uri is None:
+        return []
+    try:
+        client = mlflow.tracking.MlflowClient(tracking_uri=uri)
+        experiment = client.get_experiment_by_name(_mlflow_experiment_name())
+        if experiment is None:
+            return []
+        runs = client.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            filter_string="tags.phase = 'black_box_query'",
+        )
+    except mlflow.exceptions.MlflowException as exc:
+        LOGGER.warning("MLflow query_black_box read failed: %s", exc)
+        return []
+    rows: list[dict[str, object]] = []
+    for run in runs:
+        if str(_run_tag(run, "attack")) != "square":
+            continue
+        rows.append(
+            {
+                "arch": _run_tag(run, "arch"),
+                "variant": _run_tag(run, "variant"),
+                "num_queries": _run_tag(run, "num_queries"),
+                "asr": _run_metric(run, "asr"),
+                "robust_acc": _run_metric(run, "robust_acc"),
+                "time_per_image_ms": _run_metric(run, "time_per_image_ms"),
+            }
+        )
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # NB09 — Transfer attack analysis
 # ---------------------------------------------------------------------------
@@ -552,10 +816,115 @@ def nb09_transfer_analysis() -> Path:
         rows = [
             {"mode": "cross_arch", "status": "full-campaign-pending"},
             {"mode": "cross_seed", "status": "full-campaign-pending"},
+            {"mode": "gray_box", "status": "full-campaign-pending"},
         ]
     path = Path("results/tables/transfer_analysis.csv")
     _write_csv(path, rows)
     return path
+
+
+def nb09_gray_box_summary() -> tuple[Path, Path]:
+    """Summarize gray-box transfer runs (same arch, different weights/training).
+
+    Reads MLflow runs tagged `phase=transfer` AND `mode=gray_box` and writes a
+    CSV plus a grouped bar chart of ASR per architecture × victim variant.
+    Emits a `full-campaign-pending` placeholder when no real runs are present
+    (principles §4.10 — never fabricate numbers, mirror `nb04` behavior).
+
+    Threat model:
+        The adversary knows the victim's architecture and training recipe but
+        not its exact weights — i.e. surrogate and victim share `arch` and
+        differ in seed or training variant (clean vs APGD-AT).
+
+    Returns:
+        Pair `(csv_path, figure_path)` under `results/`.
+    """
+    ensure_result_dirs()
+    gray_rows = [
+        row
+        for row in _read_transfer_mlflow_runs()
+        if str(row.get("mode", "")) == "gray_box"
+    ]
+    csv_path = Path("results/tables/09_gray_box.csv")
+    fig_path = Path("results/figures/09_gray_box.png")
+
+    if not gray_rows:
+        _write_csv(
+            csv_path,
+            [{"arch": "", "victim_variant": "", "status": "full-campaign-pending"}],
+        )
+        fig, ax = plt.subplots(figsize=(6, 3))
+        ax.text(
+            0.5,
+            0.5,
+            "full-campaign-pending",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        ax.set_title("Gray-box transfer ASR (awaiting checkpoints)")
+        fig.savefig(fig_path)
+        plt.close(fig)
+        return csv_path, fig_path
+
+    grouped: dict[tuple[str, str, str, str], list[float]] = {}
+    for row in gray_rows:
+        key = (
+            str(row.get("arch", "")),
+            str(row.get("surrogate_seed", "")),
+            str(row.get("victim_seed", "")),
+            str(row.get("victim_variant", "clean")),
+        )
+        asr = row.get("asr")
+        if asr in (None, ""):
+            continue
+        grouped.setdefault(key, []).append(float(asr))
+
+    summary_rows: list[dict[str, object]] = []
+    for (arch, s_seed, v_seed, victim_variant), values in sorted(grouped.items()):
+        arr = np.asarray(values, dtype=float)
+        summary_rows.append(
+            {
+                "arch": arch,
+                "surrogate_seed": s_seed,
+                "victim_seed": v_seed,
+                "victim_variant": victim_variant,
+                "asr_mean": f"{float(arr.mean()):.4f}",
+                "asr_std": f"{float(arr.std(ddof=1)):.4f}"
+                if arr.size >= 2
+                else "",
+                "n_runs": int(arr.size),
+            }
+        )
+    _write_csv(csv_path, summary_rows)
+
+    archs = sorted({str(row["arch"]) for row in summary_rows})
+    variants = ["clean", "adv"]
+    fig, ax = plt.subplots(figsize=(max(6, 1.6 * len(archs)), 3.5))
+    width = 0.35
+    indices = np.arange(len(archs))
+    for offset, variant in enumerate(variants):
+        means = []
+        for arch in archs:
+            arch_values = [
+                float(row["asr_mean"])
+                for row in summary_rows
+                if row["arch"] == arch and row["victim_variant"] == variant
+            ]
+            means.append(float(np.mean(arch_values)) if arch_values else 0.0)
+        ax.bar(indices + (offset - 0.5) * width, means, width, label=f"victim={variant}")
+    ax.set_xticks(indices)
+    ax.set_xticklabels(archs)
+    ax.set_ylabel("ASR")
+    ax.set_title(
+        "Gray-box transfer ASR (same arch, different weights)\n"
+        "surrogate=clean | attack=PGD-10 | CIFAR-10 test"
+    )
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(fig_path)
+    plt.close(fig)
+    return csv_path, fig_path
 
 
 # ---------------------------------------------------------------------------
@@ -603,11 +972,11 @@ def nb11_discussion() -> Path:
         "WRN RobustBench fallback when AT does not fit in 4 GB VRAM (plan §7.4)",
         "no L2 / L1 / L0 attacks (Linf only, plan §16)",
         "no targeted attacks (plan §4.2)",
-        "no TRADES, MART, or other defense beyond Madry AT (plan §16)",
+        "no TRADES, MART, or other defense beyond APGD AT (plan §16)",
         "no ImageNet — CIFAR-10 only (plan §16)",
         "ε sweep descoped to 2 archs × 3 seeds (plan §7.3)",
         "no distributed / multi-GPU training (plan §16)",
-        "no AT hyperparameter tuning beyond Madry defaults (plan §16)",
+        "no AT hyperparameter tuning beyond APGD AT defaults (plan §16)",
     ]
     assert len(limitations) >= 8
     Path("results/tables/limitations.json").write_text(
@@ -631,12 +1000,12 @@ def _clean_checkpoint_paths(arch: str) -> list[Path]:
 
 
 def _at_checkpoint(arch: str, seed: int) -> Path | None:
-    path = Path(f"checkpoints/adv/{arch}_madry_seed{seed}.pt")
+    path = adv_checkpoint_path(arch, seed)
     return path if path.exists() else None
 
 
 def _load_clean_model(arch: str, seed: int):
-    path = Path(f"checkpoints/clean/{arch}_seed{seed}.pt")
+    path = clean_checkpoint_path(arch, seed)
     if not path.exists():
         return None
     return _load_model_from_path(arch, path)
@@ -644,21 +1013,12 @@ def _load_clean_model(arch: str, seed: int):
 
 def _load_model_from_path(arch: str, path: Path):
     config = load_experiment_config(arch=arch).model
-    model = wrap_with_normalization(
-        ARCH_BUILDERS[arch](config.num_classes), config
-    ).eval()
-    state = torch.load(path, map_location="cpu", weights_only=False)
-    if isinstance(state, dict) and "model" in state:
-        state = state["model"]
-    model.load_state_dict(state)
-    return model
+    return load_model_from_checkpoint(config, path)
 
 
 def _fresh_model(arch: str):
     config = load_experiment_config(arch=arch).model
-    return wrap_with_normalization(
-        ARCH_BUILDERS[arch](config.num_classes), config
-    ).eval()
+    return wrap_with_normalization(build_model(config), config).eval()
 
 
 def _evaluation_inputs(sample_size: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -676,7 +1036,12 @@ def _evaluation_inputs(sample_size: int) -> tuple[torch.Tensor, torch.Tensor]:
         )
         x, y = next(iter(test))
         return x, y
-    except Exception:
+    except (FileNotFoundError, RuntimeError, OSError) as exc:
+        LOGGER.warning(
+            "CIFAR-10 dataset unavailable (%s: %s); falling back to synthetic smoke batch",
+            type(exc).__name__,
+            exc,
+        )
         return _synthetic_batch(min(sample_size, SMOKE_SAMPLE_SIZE))
 
 
@@ -710,8 +1075,13 @@ def _evaluation_loader(sample_size: int | None, seed: int) -> DataLoader:
         x = torch.cat(subset_x)
         y = torch.cat(subset_y)
         return DataLoader(TensorDataset(x, y), batch_size=batch, shuffle=False)
-    except Exception:
+    except (FileNotFoundError, RuntimeError, OSError) as exc:
         # CIFAR-10 not on disk → small synthetic loader so CI smoke runs in seconds.
+        LOGGER.warning(
+            "CIFAR-10 dataset unavailable (%s: %s); using synthetic smoke loader",
+            type(exc).__name__,
+            exc,
+        )
         x, y = _synthetic_batch(SMOKE_SAMPLE_SIZE)
         return DataLoader(TensorDataset(x, y), batch_size=SMOKE_SAMPLE_SIZE)
 
@@ -739,10 +1109,7 @@ def _multi_seed_evaluation(arch: str, attack_name: str) -> list[EvaluationResult
 
 
 def _build_attack(attack_name: str):
-    cfg = load_attack_config(attack_name)
-    if cfg.name.upper() == "FGSM":
-        return FGSMAttack(cfg)
-    return PGDAttack(cfg)
+    return build_attack(load_attack_config(attack_name))
 
 
 def _clean_accuracy(arch: str, path: Path) -> float:
@@ -764,33 +1131,6 @@ def _clean_accuracy_for_model(model) -> float:
             correct += int((pred == y).sum().item())
             total += int(y.numel())
     return correct / max(total, 1)
-
-
-def _fake_results_with_field(
-    values: Iterable[float], field: str
-) -> list[EvaluationResult]:
-    """Wrap raw float values as minimal EvaluationResult-shaped objects so aggregate_seeds can consume them.
-
-    Used by nb02 to aggregate `clean_acc` (which aggregate_seeds expects to live under
-    a metric name); we pass 1 - clean_acc as `asr` so the existing API works without
-    extending aggregate_seeds. The caller inverts back to clean_acc.
-    """
-    results: list[EvaluationResult] = []
-    for v in values:
-        results.append(
-            EvaluationResult(
-                asr=1.0 - v,
-                robust_acc=v,
-                linf_mean=0.0,
-                l2_mean=0.0,
-                psnr_mean=0.0,
-                ssim_mean=0.0,
-                time_per_image_ms=0.0,
-                confidence_drop_mean=0.0,
-                n_samples=10000,
-            )
-        )
-    return results
 
 
 def _epsilon_grid() -> list[float]:
@@ -861,30 +1201,89 @@ def _read_transfer_mlflow_runs() -> list[dict[str, object]]:
     """Pull transfer-attack ASR rows from MLflow runs written by run_transfer.py."""
     try:
         import mlflow
-    except Exception:
+    except ImportError:
+        LOGGER.warning("mlflow not installed; skipping transfer attack MLflow read")
         return []
-    mlruns = Path("mlruns")
-    if not mlruns.exists():
+    uri = _resolve_tracking_uri()
+    if uri is None:
         return []
-    mlflow.set_tracking_uri(f"file:{mlruns.resolve()}")
     try:
-        df = mlflow.search_runs(
-            experiment_names=["pgd_cifar10_multiarch"],
+        client = mlflow.tracking.MlflowClient(tracking_uri=uri)
+        experiment = client.get_experiment_by_name(_mlflow_experiment_name())
+        if experiment is None:
+            return []
+        runs = client.search_runs(
+            experiment_ids=[experiment.experiment_id],
             filter_string="tags.phase = 'transfer'",
         )
-    except Exception:
+    except mlflow.exceptions.MlflowException as exc:
+        LOGGER.warning("MLflow transfer read failed: %s", exc)
         return []
     rows: list[dict[str, object]] = []
-    for _, run in df.iterrows():
-        rows.append(
-            {
-                "mode": run.get("tags.mode", ""),
-                "surrogate": run.get("tags.surrogate", ""),
-                "victim": run.get("tags.victim", ""),
-                "asr": run.get("metrics.asr", ""),
-            }
-        )
+    for run in runs:
+        mode = _run_tag(run, "mode")
+        row = {
+            "mode": mode,
+            "surrogate": "",
+            "victim": "",
+            "arch": "",
+            "surrogate_seed": "",
+            "victim_seed": "",
+            "surrogate_variant": "",
+            "victim_variant": "",
+            "asr": _run_metric(run, "asr"),
+        }
+        if mode == "cross_arch":
+            row.update(
+                {
+                    "surrogate": _run_tag(run, "surrogate"),
+                    "victim": _run_tag(run, "victim"),
+                }
+            )
+        elif mode == "cross_seed":
+            row.update(
+                {
+                    "arch": _run_tag(run, "arch"),
+                    "surrogate_seed": _run_tag(run, "surrogate_seed"),
+                    "victim_seed": _run_tag(run, "victim_seed"),
+                }
+            )
+        elif mode == "gray_box":
+            row.update(
+                {
+                    "arch": _run_tag(run, "arch"),
+                    "surrogate_seed": _run_tag(run, "surrogate_seed"),
+                    "victim_seed": _run_tag(run, "victim_seed"),
+                    "surrogate_variant": _run_tag(run, "surrogate_variant"),
+                    "victim_variant": _run_tag(run, "victim_variant"),
+                }
+            )
+        rows.append(row)
     return rows
+
+
+@lru_cache(maxsize=1)
+def _tracking_config():
+    return load_experiment_config().tracking
+
+
+def _resolve_tracking_uri() -> str | None:
+    tracking = _tracking_config()
+    if not tracking.enable:
+        return None
+    return tracking.tracking_uri
+
+
+def _mlflow_experiment_name() -> str:
+    return _tracking_config().experiment_name
+
+
+def _run_tag(run, key: str) -> object:
+    return getattr(run.data, "tags", {}).get(key, "")
+
+
+def _run_metric(run, key: str) -> object:
+    return getattr(run.data, "metrics", {}).get(key, "")
 
 
 def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:

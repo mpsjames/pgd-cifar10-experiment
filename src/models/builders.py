@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable
 
+import torch
 from torch import Tensor, nn
 from torchvision.models import resnet18
 
-from src.experiments.config import ModelConfig
+from src.experiments.config import ModelConfig, WRNConfig
 from src.models.normalize_wrapper import NormalizedModel
 from src.models.vit import VisionTransformerTiny
 
@@ -143,59 +145,43 @@ class WideResNet(nn.Module):
         return self.fc(out)
 
 
-def build_resnet18(num_classes: int = 10) -> nn.Module:
+def build_resnet18(model_config: ModelConfig) -> nn.Module:
     """Build the CIFAR-10 ResNet-18 variant used by this project."""
-    return CIFARResNetAdapter(resnet18, num_classes)
+    return CIFARResNetAdapter(resnet18, model_config.num_classes)
 
 
-def build_wrn_34_10(num_classes: int = 10) -> nn.Module:
-    """Build the WRN-34-10 variant used in clean and adversarial runs."""
-    return WideResNet(depth=34, widen_factor=10, dropout=0.0, num_classes=num_classes)
+def build_wrn_34_10(model_config: ModelConfig) -> nn.Module:
+    """Build the WRN variant declared by `model_config.wrn`."""
+    wrn = model_config.wrn or WRNConfig()
+    return WideResNet(
+        depth=wrn.depth,
+        widen_factor=wrn.widen_factor,
+        dropout=wrn.dropout,
+        num_classes=model_config.num_classes,
+    )
 
 
-def build_vit_tiny(
-    num_classes: int = 10,
-    image_size: int = 32,
-    patch_size: int = 4,
-    embed_dim: int = 192,
-    depth: int = 12,
-    num_heads: int = 3,
-    mlp_ratio: float = 4.0,
-    dropout: float = 0.1,
-    attn_dropout: float = 0.0,
-) -> nn.Module:
-    """Build the native-CIFAR ViT-Tiny variant."""
+def build_vit_tiny(model_config: ModelConfig) -> nn.Module:
+    """Build the native-CIFAR ViT-Tiny variant declared by `model_config.vit`."""
+    if model_config.vit is None:
+        raise ValueError("vit_tiny requires model_config.vit (ViTConfig) to be set")
+    vit = model_config.vit
     return VisionTransformerTiny(
-        image_size=image_size,
-        patch_size=patch_size,
-        embed_dim=embed_dim,
-        depth=depth,
-        num_heads=num_heads,
-        mlp_ratio=mlp_ratio,
-        dropout=dropout,
-        attn_dropout=attn_dropout,
-        num_classes=num_classes,
+        image_size=vit.image_size,
+        patch_size=vit.patch_size,
+        embed_dim=vit.embed_dim,
+        depth=vit.depth,
+        num_heads=vit.num_heads,
+        mlp_ratio=vit.mlp_ratio,
+        dropout=vit.dropout,
+        attn_dropout=vit.attn_dropout,
+        num_classes=model_config.num_classes,
     )
 
 
 def build_model(model_config: ModelConfig) -> nn.Module:
     """Build the architecture declared by `ModelConfig`."""
-    if model_config.arch == "vit_tiny":
-        if model_config.vit is None:
-            raise ValueError("vit_tiny requires model_config.vit (ViTConfig) to be set")
-        vit = model_config.vit
-        return build_vit_tiny(
-            num_classes=model_config.num_classes,
-            image_size=vit.image_size,
-            patch_size=vit.patch_size,
-            embed_dim=vit.embed_dim,
-            depth=vit.depth,
-            num_heads=vit.num_heads,
-            mlp_ratio=vit.mlp_ratio,
-            dropout=vit.dropout,
-            attn_dropout=vit.attn_dropout,
-        )
-    return ARCH_BUILDERS[model_config.arch](model_config.num_classes)
+    return ARCH_BUILDERS[model_config.arch](model_config)
 
 
 def wrap_with_normalization(
@@ -213,8 +199,32 @@ def wrap_with_normalization(
     return NormalizedModel(model, model_config.cifar_mean, model_config.cifar_std)
 
 
-ARCH_BUILDERS: dict[str, Callable[[int], nn.Module]] = {
+ARCH_BUILDERS: dict[str, Callable[[ModelConfig], nn.Module]] = {
     "resnet18": build_resnet18,
     "wrn_34_10": build_wrn_34_10,
     "vit_tiny": build_vit_tiny,
 }
+
+
+def build_normalized_model(model_config: ModelConfig) -> NormalizedModel:
+    """Build and wrap a model with CIFAR-10 normalization in one call."""
+    return wrap_with_normalization(build_model(model_config), model_config)
+
+
+def load_model_from_checkpoint(model_config: ModelConfig, path: Path) -> NormalizedModel:
+    """Load a NormalizedModel from a saved checkpoint file.
+
+    Args:
+        model_config: Architecture and normalization settings.
+        path: Checkpoint file path. Accepts both bare state-dicts and the
+            ``{"model": state_dict, ...}`` wrapper written by training scripts.
+
+    Returns:
+        Eval-mode ``NormalizedModel`` with weights from ``path``.
+    """
+    model = build_normalized_model(model_config).eval()
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    if isinstance(state, dict) and "model" in state:
+        state = state["model"]
+    model.load_state_dict(state)
+    return model

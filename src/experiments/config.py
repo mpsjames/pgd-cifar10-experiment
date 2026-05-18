@@ -95,6 +95,15 @@ class ViTConfig:
 
 
 @dataclass(frozen=True)
+class WRNConfig:
+    """WideResNet architecture hyperparameters (meaningless for ResNet/ViT)."""
+
+    depth: int = 34
+    widen_factor: int = 10
+    dropout: float = 0.0
+
+
+@dataclass(frozen=True)
 class ModelConfig:
     """Describe model-construction settings shared across experiments.
 
@@ -106,7 +115,8 @@ class ModelConfig:
         cifar_mean: Channel-wise CIFAR-10 mean used by `NormalizedModel`.
         cifar_std: Channel-wise CIFAR-10 standard deviation used by
             `NormalizedModel`.
-        vit: ViT-specific hyperparameters; `None` for CNN architectures.
+        vit: ViT-specific hyperparameters; `None` for non-ViT architectures.
+        wrn: WideResNet-specific hyperparameters; `None` for non-WRN architectures.
     """
 
     arch: Literal["resnet18", "wrn_34_10", "vit_tiny"]
@@ -115,6 +125,7 @@ class ModelConfig:
     cifar_mean: tuple[float, float, float] = (0.4914, 0.4822, 0.4465)
     cifar_std: tuple[float, float, float] = (0.2470, 0.2435, 0.2616)
     vit: ViTConfig | None = None
+    wrn: WRNConfig | None = None
 
 
 @dataclass(frozen=True)

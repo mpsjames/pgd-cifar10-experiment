@@ -14,6 +14,7 @@ from src.experiments.config import (
     TrackingConfig,
     TrainingConfig,
     ViTConfig,
+    WRNConfig,
 )
 
 
@@ -59,31 +60,7 @@ def load_experiment_config(
     if training_cfg is not None and arch_cfg.get("training") is not None:
         training_cfg = _override_training_batch(training_cfg, arch_cfg.training)
 
-    model_overrides = arch_cfg.get("model")
-    if model_overrides is None:
-        model_overrides = {}
-    vit_cfg: ViTConfig | None = None
-    if str(arch_cfg.arch) == "vit_tiny":
-        _do = _optional_float(model_overrides, "dropout")
-        _ao = _optional_float(model_overrides, "attn_dropout")
-        vit_cfg = ViTConfig(
-            image_size=_optional_int(model_overrides, "image_size") or 32,
-            patch_size=_optional_int(model_overrides, "patch_size") or 4,
-            embed_dim=_optional_int(model_overrides, "embed_dim") or 192,
-            depth=_optional_int(model_overrides, "depth") or 12,
-            num_heads=_optional_int(model_overrides, "num_heads") or 3,
-            mlp_ratio=_optional_float(model_overrides, "mlp_ratio") or 4.0,
-            dropout=_do if _do is not None else 0.1,
-            attn_dropout=_ao if _ao is not None else 0.0,
-        )
-    model_cfg = ModelConfig(
-        arch=str(arch_cfg.arch),  # type: ignore[arg-type]  # OmegaConf loses Literal type info at runtime
-        checkpoint_path=None,
-        num_classes=int(base.dataset.num_classes),
-        cifar_mean=tuple(float(v) for v in base.dataset.mean),  # type: ignore[arg-type]  # generator loses tuple Literal
-        cifar_std=tuple(float(v) for v in base.dataset.std),  # type: ignore[arg-type]  # generator loses tuple Literal
-        vit=vit_cfg,
-    )
+    model_cfg = _build_model_config(arch_cfg, base)
     return ExperimentConfig(
         experiment_id=experiment_id,
         seed=int(seed if seed is not None else root.seed),
@@ -216,6 +193,55 @@ def load_training_config(name: str, config_root: Path = CONFIG_ROOT) -> Training
         save_every_epochs=int(resolved.get("save_every_epochs", 5)),
         lr_milestones=lr_milestones,
         lr_gamma=float(resolved.get("lr_gamma", 0.1)),
+    )
+
+
+def _build_model_config(arch_cfg: Any, base: Any) -> ModelConfig:
+    """Build a frozen `ModelConfig` from an architecture YAML and the base YAML.
+
+    Reads architecture-specific hyperparameters from the optional `model:` block
+    (ViT for `vit_tiny`, WRN for `wrn_34_10`); ResNet-18 has no extra fields.
+    """
+    arch = str(arch_cfg.arch)
+    model_overrides = arch_cfg.get("model") or {}
+    vit_cfg: ViTConfig | None = None
+    wrn_cfg: WRNConfig | None = None
+    if arch == "vit_tiny":
+        vit_cfg = _build_vit_config(model_overrides)
+    elif arch == "wrn_34_10":
+        wrn_cfg = _build_wrn_config(model_overrides)
+    return ModelConfig(
+        arch=arch,  # type: ignore[arg-type]  # OmegaConf loses Literal type info at runtime
+        checkpoint_path=None,
+        num_classes=int(base.dataset.num_classes),
+        cifar_mean=tuple(float(v) for v in base.dataset.mean),  # type: ignore[arg-type]  # generator loses tuple Literal
+        cifar_std=tuple(float(v) for v in base.dataset.std),  # type: ignore[arg-type]  # generator loses tuple Literal
+        vit=vit_cfg,
+        wrn=wrn_cfg,
+    )
+
+
+def _build_vit_config(model_overrides: Any) -> ViTConfig:
+    dropout = _optional_float(model_overrides, "dropout")
+    attn_dropout = _optional_float(model_overrides, "attn_dropout")
+    return ViTConfig(
+        image_size=_optional_int(model_overrides, "image_size") or 32,
+        patch_size=_optional_int(model_overrides, "patch_size") or 4,
+        embed_dim=_optional_int(model_overrides, "embed_dim") or 192,
+        depth=_optional_int(model_overrides, "depth") or 12,
+        num_heads=_optional_int(model_overrides, "num_heads") or 3,
+        mlp_ratio=_optional_float(model_overrides, "mlp_ratio") or 4.0,
+        dropout=dropout if dropout is not None else 0.1,
+        attn_dropout=attn_dropout if attn_dropout is not None else 0.0,
+    )
+
+
+def _build_wrn_config(model_overrides: Any) -> WRNConfig:
+    dropout = _optional_float(model_overrides, "dropout")
+    return WRNConfig(
+        depth=_optional_int(model_overrides, "depth") or 34,
+        widen_factor=_optional_int(model_overrides, "widen_factor") or 10,
+        dropout=dropout if dropout is not None else 0.0,
     )
 
 

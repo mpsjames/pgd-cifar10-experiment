@@ -1,12 +1,12 @@
 arch: wrn_34_10
-depth: 34
-widen_factor: 10
-dropout: 0.0
 training:
   batch_size: 32
   use_amp: true
   grad_checkpointing: true
+model:
+  depth: 34
+  widen_factor: 10
+  dropout: 0.0
 fallback:
   use_robustbench: true
   robustbench_id: Madry2018
-
