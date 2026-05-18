@@ -13,6 +13,7 @@ from src.experiments.config import (
     ModelConfig,
     TrackingConfig,
     TrainingConfig,
+    ViTConfig,
 )
 
 
@@ -61,20 +62,27 @@ def load_experiment_config(
     model_overrides = arch_cfg.get("model")
     if model_overrides is None:
         model_overrides = {}
+    vit_cfg: ViTConfig | None = None
+    if str(arch_cfg.arch) == "vit_tiny":
+        _do = _optional_float(model_overrides, "dropout")
+        _ao = _optional_float(model_overrides, "attn_dropout")
+        vit_cfg = ViTConfig(
+            image_size=_optional_int(model_overrides, "image_size") or 32,
+            patch_size=_optional_int(model_overrides, "patch_size") or 4,
+            embed_dim=_optional_int(model_overrides, "embed_dim") or 192,
+            depth=_optional_int(model_overrides, "depth") or 12,
+            num_heads=_optional_int(model_overrides, "num_heads") or 3,
+            mlp_ratio=_optional_float(model_overrides, "mlp_ratio") or 4.0,
+            dropout=_do if _do is not None else 0.1,
+            attn_dropout=_ao if _ao is not None else 0.0,
+        )
     model_cfg = ModelConfig(
         arch=str(arch_cfg.arch),  # type: ignore[arg-type]  # OmegaConf loses Literal type info at runtime
         checkpoint_path=None,
         num_classes=int(base.dataset.num_classes),
         cifar_mean=tuple(float(v) for v in base.dataset.mean),  # type: ignore[arg-type]  # generator loses tuple Literal
         cifar_std=tuple(float(v) for v in base.dataset.std),  # type: ignore[arg-type]  # generator loses tuple Literal
-        image_size=_optional_int(model_overrides, "image_size"),
-        patch_size=_optional_int(model_overrides, "patch_size"),
-        embed_dim=_optional_int(model_overrides, "embed_dim"),
-        depth=_optional_int(model_overrides, "depth"),
-        num_heads=_optional_int(model_overrides, "num_heads"),
-        mlp_ratio=_optional_float(model_overrides, "mlp_ratio"),
-        dropout=_optional_float(model_overrides, "dropout"),
-        attn_dropout=_optional_float(model_overrides, "attn_dropout"),
+        vit=vit_cfg,
     )
     return ExperimentConfig(
         experiment_id=experiment_id,

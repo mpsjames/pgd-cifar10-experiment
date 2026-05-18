@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import Callable
 
 from torch import Tensor, nn
-from torchvision.models import resnet18, resnet50, vgg16_bn
+from torchvision.models import resnet18
 
 from src.experiments.config import ModelConfig
 from src.models.normalize_wrapper import NormalizedModel
+from src.models.vit import VisionTransformerTiny
 
 
 class CIFARResNetAdapter(nn.Module):
@@ -152,22 +153,49 @@ def build_wrn_34_10(num_classes: int = 10) -> nn.Module:
     return WideResNet(depth=34, widen_factor=10, dropout=0.0, num_classes=num_classes)
 
 
-def build_resnet50(num_classes: int = 10) -> nn.Module:
-    """Build the CIFAR-10 ResNet-50 variant used by the experiment suite."""
-    return CIFARResNetAdapter(resnet50, num_classes)
-
-
-def build_vgg16_bn(num_classes: int = 10) -> nn.Module:
-    """Build the CIFAR-10 VGG16-BN variant with a compact classifier head."""
-    model = vgg16_bn(weights=None, num_classes=num_classes)
-    model.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-    model.classifier = nn.Sequential(
-        nn.Linear(512, 512),
-        nn.ReLU(True),
-        nn.Dropout(),
-        nn.Linear(512, num_classes),
+def build_vit_tiny(
+    num_classes: int = 10,
+    image_size: int = 32,
+    patch_size: int = 4,
+    embed_dim: int = 192,
+    depth: int = 12,
+    num_heads: int = 3,
+    mlp_ratio: float = 4.0,
+    dropout: float = 0.1,
+    attn_dropout: float = 0.0,
+) -> nn.Module:
+    """Build the native-CIFAR ViT-Tiny variant."""
+    return VisionTransformerTiny(
+        image_size=image_size,
+        patch_size=patch_size,
+        embed_dim=embed_dim,
+        depth=depth,
+        num_heads=num_heads,
+        mlp_ratio=mlp_ratio,
+        dropout=dropout,
+        attn_dropout=attn_dropout,
+        num_classes=num_classes,
     )
-    return model
+
+
+def build_model(model_config: ModelConfig) -> nn.Module:
+    """Build the architecture declared by `ModelConfig`."""
+    if model_config.arch == "vit_tiny":
+        if model_config.vit is None:
+            raise ValueError("vit_tiny requires model_config.vit (ViTConfig) to be set")
+        vit = model_config.vit
+        return build_vit_tiny(
+            num_classes=model_config.num_classes,
+            image_size=vit.image_size,
+            patch_size=vit.patch_size,
+            embed_dim=vit.embed_dim,
+            depth=vit.depth,
+            num_heads=vit.num_heads,
+            mlp_ratio=vit.mlp_ratio,
+            dropout=vit.dropout,
+            attn_dropout=vit.attn_dropout,
+        )
+    return ARCH_BUILDERS[model_config.arch](model_config.num_classes)
 
 
 def wrap_with_normalization(
@@ -188,6 +216,5 @@ def wrap_with_normalization(
 ARCH_BUILDERS: dict[str, Callable[[int], nn.Module]] = {
     "resnet18": build_resnet18,
     "wrn_34_10": build_wrn_34_10,
-    "resnet50": build_resnet50,
-    "vgg16_bn": build_vgg16_bn,
+    "vit_tiny": build_vit_tiny,
 }

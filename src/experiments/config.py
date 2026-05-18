@@ -70,6 +70,31 @@ class TrackingConfig:
 
 
 @dataclass(frozen=True)
+class ViTConfig:
+    """ViT-Tiny architecture hyperparameters (meaningless for CNN variants).
+
+    Fields:
+        image_size: Input spatial resolution; CIFAR-10 native is 32.
+        patch_size: Side length of each non-overlapping patch token.
+        embed_dim: Token embedding dimension.
+        depth: Number of transformer encoder blocks.
+        num_heads: Number of attention heads (must divide embed_dim).
+        mlp_ratio: Hidden-to-embed ratio inside the MLP block.
+        dropout: Drop probability applied after attention and MLP residuals.
+        attn_dropout: Drop probability inside `nn.MultiheadAttention`.
+    """
+
+    image_size: int = 32
+    patch_size: int = 4
+    embed_dim: int = 192
+    depth: int = 12
+    num_heads: int = 3
+    mlp_ratio: float = 4.0
+    dropout: float = 0.1
+    attn_dropout: float = 0.0
+
+
+@dataclass(frozen=True)
 class ModelConfig:
     """Describe model-construction settings shared across experiments.
 
@@ -81,6 +106,7 @@ class ModelConfig:
         cifar_mean: Channel-wise CIFAR-10 mean used by `NormalizedModel`.
         cifar_std: Channel-wise CIFAR-10 standard deviation used by
             `NormalizedModel`.
+        vit: ViT-specific hyperparameters; `None` for CNN architectures.
     """
 
     arch: Literal["resnet18", "wrn_34_10", "vit_tiny"]
@@ -88,14 +114,7 @@ class ModelConfig:
     num_classes: int = 10
     cifar_mean: tuple[float, float, float] = (0.4914, 0.4822, 0.4465)
     cifar_std: tuple[float, float, float] = (0.2470, 0.2435, 0.2616)
-    image_size: int | None = None
-    patch_size: int | None = None
-    embed_dim: int | None = None
-    depth: int | None = None
-    num_heads: int | None = None
-    mlp_ratio: float | None = None
-    dropout: float | None = None
-    attn_dropout: float | None = None
+    vit: ViTConfig | None = None
 
 
 @dataclass(frozen=True)
