@@ -36,8 +36,8 @@ class APGDAttack(BaseAttack):
             raise ValueError(f"n_restarts must be >= 1, got {config.n_restarts}")
         if int(config.n_restarts) > 100:
             raise ValueError(f"n_restarts must be <= 100, got {config.n_restarts}")
-        self.debug_best_loss_history: list[Tensor] = []
-        self.debug_step_size_history: list[Tensor] = []
+        self.debug_best_loss_history: list[list[Tensor]] = []
+        self.debug_step_size_history: list[list[Tensor]] = []
 
     def perturb(self, model: nn.Module, x: Tensor, y: Tensor) -> Tensor:
         """Generate APGD-CE adversarial examples for one raw input batch."""
@@ -110,9 +110,9 @@ class APGDAttack(BaseAttack):
         checkpoints = _checkpoints(int(self.config.num_steps))
         rho = float(self.config.rho)
 
-        self.debug_best_loss_history.append(best_loss.detach().cpu().clone())
+        self.debug_best_loss_history.append([best_loss.detach().cpu().clone()])
         self.debug_step_size_history.append(
-            step_size.flatten(1)[:, 0].detach().cpu().clone()
+            [step_size.flatten(1)[:, 0].detach().cpu().clone()]
         )
 
         for step in range(1, int(self.config.num_steps) + 1):
@@ -149,8 +149,8 @@ class APGDAttack(BaseAttack):
                 step_at_checkpoint = step_size.clone()
                 improvements_since_checkpoint = []
 
-            self.debug_best_loss_history.append(best_loss.detach().cpu().clone())
-            self.debug_step_size_history.append(
+            self.debug_best_loss_history[-1].append(best_loss.detach().cpu().clone())
+            self.debug_step_size_history[-1].append(
                 step_size.flatten(1)[:, 0].detach().cpu().clone()
             )
 
