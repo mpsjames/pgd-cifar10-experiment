@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import json
-import sys
 import traceback
-import warnings
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Literal
-
-import mlflow
+from urllib.parse import urlparse
 
 from src.experiments.config import ExperimentConfig
 from src.tracking.env import log_environment
+from src.tracking.logging_setup import configure_run_logger
 
 
 def _json_default(value: Any) -> str:
@@ -29,7 +27,7 @@ class ExperimentTracker:
         experiment_name: MLflow experiment name.
         run_name: Human-readable run identifier.
         tags: MLflow tags accumulated across the run.
-        tracking_uri: MLflow backend URI.
+        tracking_uri: MLflow tracking-server HTTP API URL.
         json_dir: Directory used for JSON mirror artifacts.
         run_id: Active MLflow run id after `start_run`.
     """
@@ -39,74 +37,96 @@ class ExperimentTracker:
         experiment_name: str,
         run_name: str,
         tags: dict[str, str] | None = None,
-        tracking_uri: str = "file:./mlruns",
+        tracking_uri: str = "http://127.0.0.1:5000",
         json_dir: Path = Path("results/logs"),
+        enable: bool = True,
+        config: ExperimentConfig | None = None,
     ) -> None:
         self.experiment_name = experiment_name
         self.run_name = run_name
         self.tags = tags or {}
         self.tracking_uri = tracking_uri
         self.json_dir = json_dir
+        self.enable = enable
+        self._exp_config = config
         self.run_id: str | None = None
         self._config: dict[str, Any] = {}
         self._metrics: dict[str, Any] = {}
         self._params: dict[str, Any] = {}
+        self.logger = None
+        if self.enable:
+            _validate_http_uri(self.tracking_uri)
 
-    def start_run(self, config: ExperimentConfig | None = None) -> str:
+    def start_run(self, config: ExperimentConfig | None = None) -> str | None:
         """Start the MLflow run and seed it with config/environment metadata.
 
         Args:
             config: Optional frozen `ExperimentConfig` to flatten into params.
 
         Returns:
-            Active MLflow run id.
+            Active MLflow run id, or `None` when MLflow is disabled.
 
         Notes:
             A dirty git tree is surfaced to stderr because reproducibility
             claims in the README assume a clean commit.
         """
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message="The filesystem tracking backend.*",
-                category=FutureWarning,
+        self.logger = configure_run_logger(self.run_name, log_dir=self.json_dir)
+        self.logger.info("run_started mlflow_enabled=%s", self.enable)
+        if self.enable:
+            mlflow = _mlflow()
+            mlflow.tracking.MlflowClient(
+                tracking_uri=self.tracking_uri
+            ).search_experiments(
+                max_results=1
             )
             mlflow.set_tracking_uri(self.tracking_uri)
             mlflow.set_experiment(self.experiment_name)
             active = mlflow.start_run(run_name=self.run_name, tags=self.tags)
-        self.run_id = active.info.run_id
+            self.run_id = active.info.run_id
+        else:
+            self.run_id = None
         if config is not None:
             self._config = asdict(config)
             self.log_params(_flatten_dict(asdict(config)))
         env = log_environment()
         self.log_params(env)
         if env.get("git_dirty"):
-            print(
-                "WARNING: Running on dirty working tree; results are not exactly reproducible from commit.",
-                file=sys.stderr,
+            self.logger.warning(
+                "dirty_working_tree results_are_not_exactly_reproducible"
             )
         return self.run_id
 
     def log_params(self, params: dict[str, Any]) -> None:
         """Log parameter values to both the in-memory mirror and MLflow."""
         self._params.update(params)
-        mlflow.log_params(
-            {key: _safe_param_value(value) for key, value in params.items()}
-        )
+        if self.enable:
+            mlflow = _mlflow()
+            mlflow.log_params(
+                {key: _safe_param_value(value) for key, value in params.items()}
+            )
 
     def log_metrics(self, metrics: dict[str, float], step: int | None = None) -> None:
         """Log scalar metrics to both the in-memory mirror and MLflow."""
         self._metrics.update(metrics)
-        mlflow.log_metrics(metrics, step=step)
+        if self.enable:
+            mlflow = _mlflow()
+            mlflow.log_metrics(metrics, step=step)
+        if self.logger is not None:
+            metric_bits = " ".join(f"{key}={value}" for key, value in metrics.items())
+            self.logger.info("metrics_logged step=%s %s", step, metric_bits)
 
     def set_tags(self, tags: dict[str, str]) -> None:
         """Update MLflow tags and the in-memory mirror."""
         self.tags.update(tags)
-        mlflow.set_tags(tags)
+        if self.enable:
+            mlflow = _mlflow()
+            mlflow.set_tags(tags)
 
     def log_artifact(self, path: Path, artifact_path: str | None = None) -> None:
         """Upload an artifact file to MLflow."""
-        mlflow.log_artifact(str(path), artifact_path=artifact_path)
+        if self.enable:
+            mlflow = _mlflow()
+            mlflow.log_artifact(str(path), artifact_path=artifact_path)
 
     def log_figure(self, fig, name: str) -> None:
         """Persist a matplotlib figure locally and register it with MLflow."""
@@ -129,17 +149,22 @@ class ExperimentTracker:
         try:
             self._write_json(status)
         except Exception:
-            print(
-                "JSON sink failed; tagging MLflow run with json_sink_failed=true.",
-                file=sys.stderr,
-            )
-            traceback.print_exc(file=sys.stderr)
-            mlflow.set_tag("json_sink_failed", "true")
+            if self.logger is not None:
+                self.logger.error("json_sink_failed", exc_info=True)
+            else:
+                traceback.print_exc()
+            if self.enable:
+                mlflow = _mlflow()
+                mlflow.set_tag("json_sink_failed", "true")
         finally:
-            mlflow.end_run(status=status)
+            if self.logger is not None:
+                self.logger.info("run_ended status=%s", status)
+            if self.enable:
+                mlflow = _mlflow()
+                mlflow.end_run(status=status)
 
     def __enter__(self) -> "ExperimentTracker":
-        self.start_run()
+        self.start_run(self._exp_config)
         return self
 
     def __exit__(self, exc_type, *_args) -> None:
@@ -147,7 +172,7 @@ class ExperimentTracker:
 
     def _write_json(self, status: str) -> None:
         self.json_dir.mkdir(parents=True, exist_ok=True)
-        run_id = self.run_id or "unstarted"
+        run_id = self.run_id or self.run_name
         payload = {
             "run_id": run_id,
             "experiment": self.experiment_name,
@@ -183,3 +208,22 @@ def _safe_param_value(value: Any) -> str | int | float | bool:
     if isinstance(value, (str, int, float, bool)):
         return value
     return str(value)
+
+
+def _validate_http_uri(uri: str) -> None:
+    parsed = urlparse(uri)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError(
+            f"MLflow tracking_uri must be an http or https URL, got {uri!r}"
+        )
+
+
+def _mlflow():
+    try:
+        import mlflow
+    except ImportError as exc:
+        raise RuntimeError(
+            "MLflow tracking is enabled but the 'mlflow' package is not installed. "
+            "Install project dependencies or pass --no-mlflow."
+        ) from exc
+    return mlflow

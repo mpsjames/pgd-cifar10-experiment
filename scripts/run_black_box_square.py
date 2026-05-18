@@ -101,6 +101,7 @@ def main() -> None:
         tracking_uri=args.tracking_uri or exp_config.tracking.tracking_uri,
         json_dir=args.json_dir,
         enable=exp_config.tracking.enable and not args.no_mlflow,
+        config=exp_config,
     ) as tracker:
         tracker.log_metrics(
             {

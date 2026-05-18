@@ -10,11 +10,12 @@ import torch
 from omegaconf import OmegaConf
 from torch.utils.data import DataLoader, TensorDataset
 
-from src.attacks.pgd import PGDAttack
+from src.attacks.factory import build_attack
 from src.evaluation.runner import AttackEvaluator
 from src.experiments.config import AttackConfig
 from src.experiments.config_loader import load_attack_config, load_experiment_config
-from src.models.builders import ARCH_BUILDERS, wrap_with_normalization
+from src.experiments.notebook_reports import _load_model_from_path
+from src.models.builders import ARCH_BUILDERS, build_model, wrap_with_normalization
 from src.tracking.mlflow_logger import ExperimentTracker
 from src.utils.seed import set_all_seeds
 
@@ -32,20 +33,25 @@ def main() -> None:
         default=Path("configs/sweeps/pgd_epsilon_sweep.yaml"),
     )
     parser.add_argument("--arch", action="append", default=None)
+    parser.add_argument("--attack", default=None)
     parser.add_argument("--seed", type=int, action="append", default=None)
     parser.add_argument("--epsilon", type=float, action="append", default=None)
+    parser.add_argument("--variant", choices=["clean", "adv"], default="clean")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--no-download", action="store_true")
-    parser.add_argument("--tracking-uri", default="file:./mlruns")
+    parser.add_argument("--tracking-uri", default=None)
     parser.add_argument("--json-dir", type=Path, default=Path("results/logs"))
+    parser.add_argument("--no-mlflow", action="store_true")
     args = parser.parse_args()
+    set_all_seeds(args.seed[0] if args.seed else 42)
 
     sweep = OmegaConf.load(args.sweep_config)
     arches = args.arch or [str(item) for item in sweep.architectures]
     seeds = args.seed or [int(item) for item in sweep.seeds]
     epsilons = args.epsilon or [float(item) for item in sweep.epsilons]
-    base_attack = load_attack_config(str(sweep.attack))
+    attack_name = args.attack or str(sweep.attack)
+    base_attack = load_attack_config(attack_name)
     if args.smoke:
         arches = arches[:1]
         seeds = seeds[:1]
@@ -55,11 +61,11 @@ def main() -> None:
         for seed in seeds:
             set_all_seeds(seed)
             exp_config = load_experiment_config(
-                arch=arch, attack=str(sweep.attack), seed=seed
+                arch=arch, attack=attack_name, seed=seed
             )
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            model = wrap_with_normalization(
-                ARCH_BUILDERS[arch](exp_config.model.num_classes), exp_config.model
+            model = _load_checkpoint_or_smoke_model(
+                arch, seed, args.variant, exp_config, args.smoke
             ).to(device)
             loader = (
                 _smoke_loader(args.batch_size, exp_config.model.num_classes)
@@ -74,11 +80,18 @@ def main() -> None:
                     num_steps=base_attack.num_steps,
                     random_start=base_attack.random_start,
                     norm=base_attack.norm,
+                    p_init=base_attack.p_init,
+                    loss=base_attack.loss,
+                    seed=base_attack.seed,
+                    rho=base_attack.rho,
+                    n_restarts=base_attack.n_restarts,
                 )
                 result = AttackEvaluator(
-                    model, PGDAttack(attack_config), loader, device
+                    model, build_attack(attack_config), loader, device
                 ).run()
-                run_name = f"epsilon_sweep_{arch}_eps{epsilon:.6f}_seed{seed}"
+                run_name = (
+                    f"epsilon_sweep_{attack_name}_{arch}_eps{epsilon:.6f}_seed{seed}"
+                )
                 tags = {
                     "phase": "epsilon_sweep",
                     "arch": arch,
@@ -86,11 +99,13 @@ def main() -> None:
                     "epsilon": f"{epsilon:.12f}",
                 }
                 with ExperimentTracker(
-                    "pgd_cifar10_multiarch",
+                    exp_config.tracking.experiment_name,
                     run_name,
-                    tags,
-                    tracking_uri=args.tracking_uri,
+                    {**tags, "attack": attack_name},
+                    tracking_uri=args.tracking_uri or exp_config.tracking.tracking_uri,
                     json_dir=args.json_dir,
+                    enable=exp_config.tracking.enable and not args.no_mlflow,
+                    config=exp_config,
                 ) as tracker:
                     tracker.log_metrics(
                         {
@@ -109,6 +124,28 @@ def _smoke_loader(batch_size: int, num_classes: int) -> DataLoader:
     x = torch.rand(n, 3, 32, 32)
     y = torch.randint(0, num_classes, (n,), dtype=torch.long)
     return DataLoader(TensorDataset(x, y), batch_size=n)
+
+
+def _checkpoint_path(arch: str, seed: int, variant: str) -> Path:
+    if variant == "adv":
+        return Path("checkpoints/adv") / f"{arch}_apgd_at_seed{seed}.pt"
+    return Path("checkpoints/clean") / f"{arch}_seed{seed}.pt"
+
+
+def _fresh_model_random(exp_config):
+    return wrap_with_normalization(build_model(exp_config.model), exp_config.model)
+
+
+def _load_checkpoint_or_smoke_model(
+    arch: str, seed: int, variant: str, exp_config, smoke: bool
+):
+    ckpt_path = _checkpoint_path(arch, seed, variant)
+    if ckpt_path.exists():
+        return _load_model_from_path(arch, ckpt_path)
+    if smoke:
+        print(f"WARNING: smoke run on random weights; checkpoint not found: {ckpt_path}")
+        return _fresh_model_random(exp_config)
+    raise FileNotFoundError(ckpt_path)
 
 
 def _cifar_loader(batch_size: int, no_download: bool) -> DataLoader:
