@@ -9,7 +9,7 @@ from src.reporting.attack import build_attack_for_report
 from src.reporting.constants import ARCHES, SEED
 from src.reporting.evaluators import evaluate_attack
 from src.reporting.io import ensure_result_dirs
-from src.reporting.model_registry import reporting_model_pair
+from src.reporting.registry import reporting_model_pair
 
 
 def nb10_architecture_comparison() -> Path:

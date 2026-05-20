@@ -9,7 +9,7 @@ from src.reporting.constants import SEED
 from src.reporting.evaluators import clean_accuracy, evaluate_attack
 from src.reporting.gates import AT_GATES
 from src.reporting.io import ensure_result_dirs, write_csv
-from src.reporting.model_registry import reporting_model_pair
+from src.reporting.registry import reporting_model_pair
 
 
 def nb07_adversarial_training(arch: str) -> Path:

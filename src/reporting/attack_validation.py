@@ -14,9 +14,9 @@ from src.attacks.verify import verify_perturbation
 from src.experiments.config import AttackConfig
 from src.experiments.config_loader import load_attack_config
 from src.reporting.constants import NB03_SAMPLE_SIZE, SEED
-from src.reporting.data_loaders import evaluation_inputs
+from src.reporting.loaders import evaluation_inputs
 from src.reporting.io import ensure_result_dirs
-from src.reporting.model_registry import build_fresh_model, reporting_model_pair
+from src.reporting.registry import build_fresh_model, reporting_model_pair
 from src.utils.seed import set_all_seeds
 from src.visualize.perturbation_panels import make_perturbation_panel
 

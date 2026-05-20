@@ -6,7 +6,7 @@ import torch
 
 from src.evaluation.attack_evaluator import AttackEvaluator, EvaluationResult
 from src.reporting.constants import SEED
-from src.reporting.data_loaders import evaluation_loader
+from src.reporting.loaders import evaluation_loader
 
 
 def evaluate_attack(

@@ -10,8 +10,8 @@ from src.reporting.attack import build_attack_for_report
 from src.reporting.constants import ARCHES, SEED
 from src.reporting.evaluators import evaluate_attack
 from src.reporting.io import ensure_result_dirs, write_csv
-from src.reporting.mlflow_queries import read_square_mlflow_runs
-from src.reporting.model_registry import reporting_model_pair
+from src.reporting.queries import read_square_mlflow_runs
+from src.reporting.registry import reporting_model_pair
 
 
 def nb08_defense_synthesis() -> Path:

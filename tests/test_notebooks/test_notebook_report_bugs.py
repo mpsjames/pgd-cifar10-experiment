@@ -9,7 +9,7 @@ import torch
 
 
 def test_nb08_requires_matching_seed42_clean_checkpoint(tmp_path: Path, monkeypatch) -> None:
-    from src.reporting import nb08_defense_synthesis as reports
+    from src.reporting import defense_synthesis as reports
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(reports, "ARCHES", ["resnet18"])
@@ -35,7 +35,7 @@ def test_nb08_requires_matching_seed42_clean_checkpoint(tmp_path: Path, monkeypa
 
 
 def test_transfer_mlflow_rows_carry_gray_box_variants(tmp_path: Path, monkeypatch) -> None:
-    from src.reporting import mlflow_queries as reports
+    from src.reporting import queries as reports
 
     runs = [
         SimpleNamespace(
@@ -81,7 +81,7 @@ def test_nb04_main_results_schema_includes_new_columns(tmp_path: Path, monkeypat
     from pathlib import Path as _Path
 
     from src.evaluation.attack_evaluator import EvaluationResult
-    from src.reporting import nb04_main_results as reports
+    from src.reporting import main_results as reports
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(reports, "ARCHES", ["resnet18"])
@@ -135,7 +135,7 @@ def test_nb04_main_results_schema_includes_new_columns(tmp_path: Path, monkeypat
 
 
 def test_nb03_invariants_are_computed_from_attack_outputs(tmp_path: Path, monkeypatch) -> None:
-    from src.reporting import nb03_attack_validation as reports
+    from src.reporting import attack_validation as reports
 
     class SafeAttack:
         def __init__(self, _config=None) -> None:

@@ -9,9 +9,9 @@ import torch
 
 from src.reporting.attack import build_attack_for_report
 from src.reporting.constants import ARCHES, NB06_NUM_SAMPLES, SEED
-from src.reporting.data_loaders import evaluation_inputs, evaluation_loader
+from src.reporting.loaders import evaluation_inputs, evaluation_loader
 from src.reporting.io import ensure_result_dirs
-from src.reporting.model_registry import build_fresh_model, reporting_model_pair
+from src.reporting.registry import build_fresh_model, reporting_model_pair
 from src.utils.seed import set_all_seeds
 from src.visualize.gradcam import compute_gradcam
 from src.visualize.perturbation_panels import make_perturbation_panel

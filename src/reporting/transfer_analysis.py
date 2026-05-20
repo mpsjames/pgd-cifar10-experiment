@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from src.reporting.io import ensure_result_dirs, write_csv
-from src.reporting.mlflow_queries import read_transfer_mlflow_runs
+from src.reporting.queries import read_transfer_mlflow_runs
 
 
 def nb09_transfer_analysis() -> Path:
