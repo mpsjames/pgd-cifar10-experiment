@@ -85,7 +85,7 @@ class AttackEvaluator:
         test_loader: DataLoader,
         device: torch.device,
         keep_per_sample: bool = False,
-        perturb_model: "Normalizer | None" = None,
+        perturb_model: Normalizer | None = None,
     ) -> None:
         self.model = model
         self.attack = attack

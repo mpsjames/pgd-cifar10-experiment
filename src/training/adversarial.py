@@ -105,4 +105,3 @@ class AdversarialTrainer(BaseTrainer):
             "loss": total_loss / max(total, 1),
             "acc_on_adv": total_correct / max(total, 1),
         }
-

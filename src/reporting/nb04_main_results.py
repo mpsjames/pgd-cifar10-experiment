@@ -87,7 +87,6 @@ def _render_main_figure(rows: list[dict[str, object]]) -> Path:
     width = 0.8 / max(len(archs), 1)
     for offset, arch in enumerate(archs):
         means = []
-        stds = []
         for attack_name in NB04_ATTACK_NAMES:
             match = [r for r in visible if r["arch"] == arch and r["attack"] == attack_name]
             means.append(float(match[0]["asr"]) if match else 0.0)
@@ -117,9 +116,7 @@ def _render_time_vs_asr(
 ) -> Path:
     fig_path = Path("results/figures/04_time_vs_asr.png")
     visible = [
-        r
-        for r in rows
-        if str(r.get("asr", "")) != "" and str(r.get("time_per_image_ms", "")) != ""
+        r for r in rows if str(r.get("asr", "")) != "" and str(r.get("time_per_image_ms", "")) != ""
     ]
     fig, ax = plt.subplots(figsize=(6, 4))
     if not visible:

@@ -34,7 +34,6 @@ def test_nb08_requires_matching_seed42_clean_checkpoint(tmp_path: Path, monkeypa
     ]
 
 
-
 def test_transfer_mlflow_rows_carry_gray_box_variants(tmp_path: Path, monkeypatch) -> None:
     from src.reporting import mlflow_queries as reports
 

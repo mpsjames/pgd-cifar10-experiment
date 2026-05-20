@@ -36,7 +36,9 @@ def configure_run_logger(
     logger.setLevel(level)
     logger.propagate = False
 
-    for handler in list(logger.handlers):  # list() copy — handler removal during iteration would skip entries
+    for handler in list(
+        logger.handlers
+    ):  # list() copy — handler removal during iteration would skip entries
         if getattr(handler, "_pgd_managed", False):
             logger.removeHandler(handler)
             handler.close()

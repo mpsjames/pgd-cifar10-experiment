@@ -10,7 +10,7 @@ from src.attacks.square import SquareAttack
 from src.experiments.config import AttackConfig
 
 
-def replace_attack_epsilon(cfg: "AttackConfig", epsilon: float) -> "AttackConfig":
+def replace_attack_epsilon(cfg: AttackConfig, epsilon: float) -> AttackConfig:
     """Return a copy of *cfg* with epsilon replaced and dependent fields adjusted.
 
     Args:
@@ -51,9 +51,7 @@ class AttackFactory:
         attack_cls = cls._registry.get(config.name.upper())
         if attack_cls is None:
             supported = ", ".join(sorted(cls._registry))
-            raise ValueError(
-                f"Unsupported attack: {config.name!r}. Supported: {supported}"
-            )
+            raise ValueError(f"Unsupported attack: {config.name!r}. Supported: {supported}")
         return attack_cls(config)
 
     @classmethod

@@ -15,6 +15,7 @@ from src.attacks.verify import verify_perturbation
 from src.cli.loader import load_checkpoint_or_smoke
 from src.data.cifar10 import get_cifar10_loaders
 from src.data.smoke import make_smoke_loader
+from src.evaluation.attack_evaluator import AttackEvaluator, EvaluationResult
 from src.evaluation.metrics import (
     attack_success_rate,
     l2_norm,
@@ -23,7 +24,6 @@ from src.evaluation.metrics import (
     robust_accuracy,
     ssim,
 )
-from src.evaluation.attack_evaluator import AttackEvaluator, EvaluationResult
 from src.experiments.config import ExperimentConfig
 from src.experiments.config_loader import load_experiment_config
 from src.models.builders import build_normalized_model
@@ -243,4 +243,3 @@ class ExperimentRunner:
                 "n_samples": float(result.n_samples),
             }
         )
-

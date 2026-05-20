@@ -48,7 +48,9 @@ def nb09_gray_box_summary() -> tuple[Path, Path]:
 
 
 def _mean_asr(rows: list[dict], arch: str, variant: str) -> float:
-    matches = [float(r["asr_mean"]) for r in rows if r["arch"] == arch and r["victim_variant"] == variant]
+    matches = [
+        float(r["asr_mean"]) for r in rows if r["arch"] == arch and r["victim_variant"] == variant
+    ]
     return float(np.mean(matches)) if matches else 0.0
 
 

@@ -121,9 +121,7 @@ def _build_attack_from_dict(resolved: dict, source: str) -> AttackConfig:
         raise ValueError(f"Unexpected AttackConfig keys in {source}: {sorted(extra)}")
     loss = resolved.get("loss")
     if loss is not None and loss not in {"margin", "cross_entropy"}:
-        raise ValueError(
-            f"{source}: 'loss' must be 'margin' or 'cross_entropy', got {loss!r}"
-        )
+        raise ValueError(f"{source}: 'loss' must be 'margin' or 'cross_entropy', got {loss!r}")
     return AttackConfig(
         name=str(resolved["name"]),
         epsilon=float(resolved["epsilon"]),

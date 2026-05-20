@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-from argparse import Namespace
 from pathlib import Path
 
 
