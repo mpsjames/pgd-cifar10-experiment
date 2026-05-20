@@ -10,10 +10,11 @@ attack_default:
   alpha: 0.00784313725490196
   norm: Linf
 
-seeds: [42, 123, 456, 789, 1024]
 hardware: {device: cuda, vram_gb: 4}
 
 mlflow:
-  tracking_uri: file:./mlruns
+  enable: true
+  tracking_uri: http://127.0.0.1:5000
   experiment_name: pgd_cifar10_multiarch
-
+  http_request_timeout_s: 30
+  http_request_max_retries: 5

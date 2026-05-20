@@ -5,9 +5,7 @@ from __future__ import annotations
 from torch import Tensor
 
 
-def verify_perturbation(
-    x_orig: Tensor, x_adv: Tensor, epsilon: float, norm: str = "Linf"
-) -> None:
+def verify_perturbation(x_orig: Tensor, x_adv: Tensor, epsilon: float, norm: str = "Linf") -> None:
     """Verify perturbation norm and pixel-domain constraints.
 
     Args:
@@ -24,9 +22,7 @@ def verify_perturbation(
         ValueError: When `norm` is unsupported.
     """
     if x_orig.shape != x_adv.shape:
-        raise AssertionError(
-            f"Shape mismatch: {tuple(x_orig.shape)} != {tuple(x_adv.shape)}"
-        )
+        raise AssertionError(f"Shape mismatch: {tuple(x_orig.shape)} != {tuple(x_adv.shape)}")
     delta = (x_adv - x_orig).abs()
 
     if norm == "Linf":
@@ -41,6 +37,4 @@ def verify_perturbation(
         raise ValueError(f"Unsupported norm: {norm}")
 
     if x_adv.min().item() < -1e-6 or x_adv.max().item() > 1.0 + 1e-6:
-        raise AssertionError(
-            "Adversarial examples are outside the valid image domain [0, 1]"
-        )
+        raise AssertionError("Adversarial examples are outside the valid image domain [0, 1]")

@@ -1,0 +1,11 @@
+# Gray-box threat model: adversary knows the architecture and training recipe
+# of the victim but not its exact weights. Surrogate and victim share `arch`
+# and differ in seed and/or training variant (clean vs adversarial).
+attack: pgd_10
+pairs:
+  - {arch: resnet18,  surrogate_seed: 42, victim_seed: 123, surrogate_variant: clean, victim_variant: clean}
+  - {arch: wrn_34_10, surrogate_seed: 42, victim_seed: 123, surrogate_variant: clean, victim_variant: clean}
+  - {arch: vit_tiny, surrogate_seed: 42, victim_seed: 123, surrogate_variant: clean, victim_variant: clean}
+  - {arch: resnet18,  surrogate_seed: 42, victim_seed: 42,  surrogate_variant: clean, victim_variant: adv}
+  - {arch: wrn_34_10, surrogate_seed: 42, victim_seed: 42,  surrogate_variant: clean, victim_variant: adv}
+  - {arch: vit_tiny, surrogate_seed: 42, victim_seed: 42,  surrogate_variant: clean, victim_variant: adv}

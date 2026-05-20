@@ -4,18 +4,14 @@ from __future__ import annotations
 
 from torch import nn
 
-from src.models.normalize_wrapper import NormalizedModel
-
-
 ARCH_TO_GRADCAM_LAYER: dict[str, str] = {
     "resnet18": "model.model.layer3.1.conv2",
     "wrn_34_10": "model.block3.layer.4.conv2",
-    "resnet50": "model.model.layer3.5.conv3",
-    "vgg16_bn": "model.features.40",
+    "vit_tiny": "model.blocks.11.norm1",
 }
 
 
-def get_gradcam_target(model: NormalizedModel, arch: str) -> nn.Module:
+def get_gradcam_target(model: nn.Module, arch: str) -> nn.Module:
     """Resolve the configured Grad-CAM target layer for an architecture.
 
     Args:
@@ -34,10 +30,4 @@ def get_gradcam_target(model: NormalizedModel, arch: str) -> nn.Module:
     if arch not in ARCH_TO_GRADCAM_LAYER:
         raise KeyError(f"Unknown architecture: {arch}")
 
-    target: nn.Module = model
-    for part in ARCH_TO_GRADCAM_LAYER[arch].split("."):
-        if part.isdigit():
-            target = target[int(part)]  # type: ignore[index]
-        else:
-            target = getattr(target, part)
-    return target
+    return model.get_submodule(ARCH_TO_GRADCAM_LAYER[arch])

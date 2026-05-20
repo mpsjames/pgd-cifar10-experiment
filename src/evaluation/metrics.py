@@ -94,9 +94,5 @@ def ssim(x_adv: Tensor, x_orig: Tensor) -> Tensor:
     for adv, orig in zip(x_adv.detach().cpu(), x_orig.detach().cpu(), strict=True):
         adv_np = adv.permute(1, 2, 0).numpy()
         orig_np = orig.permute(1, 2, 0).numpy()
-        values.append(
-            float(
-                structural_similarity(orig_np, adv_np, channel_axis=2, data_range=1.0)
-            )
-        )
+        values.append(float(structural_similarity(orig_np, adv_np, channel_axis=2, data_range=1.0)))
     return torch.tensor(values, dtype=torch.float32, device=x_adv.device)

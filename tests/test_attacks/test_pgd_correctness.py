@@ -2,23 +2,11 @@ from __future__ import annotations
 
 import pytest
 import torch
-from torch import nn
 
 from src.attacks.pgd import PGDAttack
 from src.attacks.verify import verify_perturbation
 from src.experiments.config import AttackConfig
 from src.utils.seed import set_all_seeds
-
-
-class TinyClassifier(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.net = nn.Sequential(nn.Flatten(), nn.Linear(3 * 32 * 32, 10))
-        self.seen_input_dtype: torch.dtype | None = None
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        self.seen_input_dtype = x.dtype
-        return self.net(x)
 
 
 def _pgd_config(
@@ -37,8 +25,8 @@ def _pgd_config(
     )
 
 
-def test_linf_invariant() -> None:
-    model = TinyClassifier()
+def test_linf_invariant(tiny_classifier) -> None:
+    model = tiny_classifier
     attack = PGDAttack(_pgd_config())
     x = torch.rand(8, 3, 32, 32)
     y = torch.randint(0, 10, (8,), dtype=torch.long)
@@ -46,8 +34,8 @@ def test_linf_invariant() -> None:
     verify_perturbation(x, x_adv, epsilon=8 / 255)
 
 
-def test_zero_epsilon() -> None:
-    model = TinyClassifier()
+def test_zero_epsilon(tiny_classifier) -> None:
+    model = tiny_classifier
     attack = PGDAttack(_pgd_config(random_start=True, epsilon=0.0, alpha=0.0))
     x = torch.rand(4, 3, 32, 32)
     y = torch.randint(0, 10, (4,), dtype=torch.long)
@@ -55,8 +43,8 @@ def test_zero_epsilon() -> None:
     assert torch.equal(x_adv, x)
 
 
-def test_bim_is_pgd_no_random_deterministic() -> None:
-    model = TinyClassifier()
+def test_bim_is_pgd_no_random_deterministic(tiny_classifier) -> None:
+    model = tiny_classifier
     x = torch.rand(4, 3, 32, 32)
     y = torch.randint(0, 10, (4,), dtype=torch.long)
     bim = PGDAttack(
@@ -73,8 +61,8 @@ def test_bim_is_pgd_no_random_deterministic() -> None:
     assert torch.equal(bim.perturb(model, x, y), pgd_no_random.perturb(model, x, y))
 
 
-def test_random_start_deterministic_with_seed() -> None:
-    model = TinyClassifier()
+def test_random_start_deterministic_with_seed(tiny_classifier) -> None:
+    model = tiny_classifier
     x = torch.rand(4, 3, 32, 32)
     y = torch.randint(0, 10, (4,), dtype=torch.long)
     attack = PGDAttack(_pgd_config(random_start=True))
@@ -85,8 +73,8 @@ def test_random_start_deterministic_with_seed() -> None:
     assert torch.equal(a, b)
 
 
-def test_pgd_runs_in_fp32_inside_autocast() -> None:
-    model = TinyClassifier()
+def test_pgd_runs_in_fp32_inside_autocast(tiny_classifier) -> None:
+    model = tiny_classifier
     attack = PGDAttack(_pgd_config(random_start=False, steps=1))
     x = torch.rand(2, 3, 32, 32)
     y = torch.randint(0, 10, (2,), dtype=torch.long)
@@ -95,9 +83,9 @@ def test_pgd_runs_in_fp32_inside_autocast() -> None:
     assert model.seen_input_dtype == torch.float32
 
 
-def test_torchattacks_deterministic_parity() -> None:
+def test_torchattacks_deterministic_parity(tiny_classifier_factory) -> None:
     torchattacks = pytest.importorskip("torchattacks")
-    model = TinyClassifier().eval()
+    model = tiny_classifier_factory().eval()
     x = torch.rand(2, 3, 32, 32)
     y = torch.randint(0, 10, (2,), dtype=torch.long)
     cfg = AttackConfig(
@@ -115,9 +103,9 @@ def test_torchattacks_deterministic_parity() -> None:
     assert torch.allclose(ours, theirs, atol=1e-5)
 
 
-def test_torchattacks_asr_close() -> None:
+def test_torchattacks_asr_close(tiny_classifier_factory) -> None:
     torchattacks = pytest.importorskip("torchattacks")
-    model = TinyClassifier().eval()
+    model = tiny_classifier_factory().eval()
     x = torch.rand(64, 3, 32, 32)
     y = torch.randint(0, 10, (64,), dtype=torch.long)
     cfg = AttackConfig(

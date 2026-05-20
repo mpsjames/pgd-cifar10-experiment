@@ -7,11 +7,11 @@ from src.models.builders import (
     load_model_from_checkpoint,
     wrap_with_normalization,
 )
-from src.models.normalize_wrapper import NormalizedModel
+from src.models.normalizer import Normalizer
 
 __all__ = [
     "ARCH_BUILDERS",
-    "NormalizedModel",
+    "Normalizer",
     "build_model",
     "build_normalized_model",
     "load_model_from_checkpoint",

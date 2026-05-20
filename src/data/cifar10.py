@@ -62,9 +62,7 @@ def get_cifar10_loaders(
         transform=transforms.Compose(train_transforms),
         download=download,
     )
-    test_set = datasets.CIFAR10(
-        root=root, train=False, transform=test_transform, download=download
-    )
+    test_set = datasets.CIFAR10(root=root, train=False, transform=test_transform, download=download)
 
     generator = get_generator(seed) if seed is not None else None
     return (

@@ -8,17 +8,6 @@ from src.attacks.verify import verify_perturbation
 from src.experiments.config import AttackConfig
 
 
-class TinyClassifier(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.net = nn.Sequential(nn.Flatten(), nn.Linear(3 * 32 * 32, 10))
-        self.seen_input_dtype: torch.dtype | None = None
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        self.seen_input_dtype = x.dtype
-        return self.net(x)
-
-
 class ZeroGradientClassifier(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         z = x.flatten(1).sum(dim=1) * 0.0
@@ -45,9 +34,9 @@ def _apgd_config(
     )
 
 
-def test_apgd_respects_linf_and_pixel_domain() -> None:
+def test_apgd_respects_linf_and_pixel_domain(tiny_classifier) -> None:
     torch.manual_seed(0)
-    model = TinyClassifier()
+    model = tiny_classifier
     attack = APGDAttack(_apgd_config())
     x = torch.rand(4, 3, 32, 32)
     y = torch.tensor([0, 1, 2, 3], dtype=torch.long)
@@ -59,8 +48,8 @@ def test_apgd_respects_linf_and_pixel_domain() -> None:
     assert x_adv.shape == x.shape
 
 
-def test_apgd_zero_epsilon_identity() -> None:
-    model = TinyClassifier()
+def test_apgd_zero_epsilon_identity(tiny_classifier) -> None:
+    model = tiny_classifier
     attack = APGDAttack(_apgd_config(epsilon=0.0))
     x = torch.rand(2, 3, 32, 32)
     y = torch.tensor([0, 1], dtype=torch.long)
@@ -68,16 +57,16 @@ def test_apgd_zero_epsilon_identity() -> None:
     assert torch.equal(attack.perturb(model, x, y), x)
 
 
-def test_apgd_loss_monotone_in_best() -> None:
+def test_apgd_loss_monotone_in_best(tiny_classifier) -> None:
     torch.manual_seed(0)
-    model = TinyClassifier()
+    model = tiny_classifier
     attack = APGDAttack(_apgd_config(steps=6))
     x = torch.rand(3, 3, 32, 32)
     y = torch.tensor([0, 1, 2], dtype=torch.long)
 
     attack.perturb(model, x, y)
 
-    for trajectory in attack.debug_best_loss_history:
+    for trajectory in attack._debug_history["best_loss"]:
         history = torch.stack(trajectory)
         assert torch.all(history[1:] >= history[:-1] - 1e-6)
 
@@ -90,15 +79,15 @@ def test_apgd_step_size_halves_on_no_improvement() -> None:
 
     attack.perturb(model, x, y)
 
-    history = torch.stack(attack.debug_step_size_history[0])
+    history = torch.stack(attack._debug_history["step_size"][0])
     assert float(history.min().item()) < float(history[0].min().item())
 
 
-def test_apgd_deterministic_per_seed() -> None:
+def test_apgd_deterministic_per_seed(tiny_classifier_factory) -> None:
     torch.manual_seed(0)
-    model_a = TinyClassifier()
+    model_a = tiny_classifier_factory()
     torch.manual_seed(0)
-    model_b = TinyClassifier()
+    model_b = tiny_classifier_factory()
     x = torch.rand(3, 3, 32, 32)
     y = torch.tensor([0, 1, 2], dtype=torch.long)
     cfg = _apgd_config(seed=123)
@@ -120,17 +109,17 @@ def test_apgd_rejects_non_linf() -> None:
         raise AssertionError("APGDAttack must reject non-Linf norms")
 
 
-def test_apgd_history_is_partitioned_by_restart() -> None:
+def test_apgd_history_is_partitioned_by_restart(tiny_classifier) -> None:
     torch.manual_seed(0)
-    model = TinyClassifier()
+    model = tiny_classifier
     attack = APGDAttack(_apgd_config(steps=4, n_restarts=2))
     x = torch.rand(3, 3, 32, 32)
     y = torch.tensor([0, 1, 2], dtype=torch.long)
 
     attack.perturb(model, x, y)
 
-    assert len(attack.debug_best_loss_history) == 2
-    assert len(attack.debug_step_size_history) == 2
-    for trajectory in attack.debug_best_loss_history:
+    assert len(attack._debug_history["best_loss"]) == 2
+    assert len(attack._debug_history["step_size"]) == 2
+    for trajectory in attack._debug_history["best_loss"]:
         history = torch.stack(trajectory)
         assert torch.all(history[1:] >= history[:-1] - 1e-6)

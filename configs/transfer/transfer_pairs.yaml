@@ -1,15 +1,8 @@
 pairs:
   - {surrogate: resnet18, victim: wrn_34_10}
-  - {surrogate: resnet18, victim: resnet50}
-  - {surrogate: resnet18, victim: vgg16_bn}
+  - {surrogate: resnet18, victim: vit_tiny}
   - {surrogate: wrn_34_10, victim: resnet18}
-  - {surrogate: wrn_34_10, victim: resnet50}
-  - {surrogate: wrn_34_10, victim: vgg16_bn}
-  - {surrogate: resnet50, victim: resnet18}
-  - {surrogate: resnet50, victim: wrn_34_10}
-  - {surrogate: resnet50, victim: vgg16_bn}
-  - {surrogate: vgg16_bn, victim: resnet18}
-  - {surrogate: vgg16_bn, victim: wrn_34_10}
-  - {surrogate: vgg16_bn, victim: resnet50}
+  - {surrogate: wrn_34_10, victim: vit_tiny}
+  - {surrogate: vit_tiny, victim: resnet18}
+  - {surrogate: vit_tiny, victim: wrn_34_10}
 attack: pgd_10
-

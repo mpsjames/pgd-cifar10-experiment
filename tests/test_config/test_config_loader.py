@@ -20,4 +20,13 @@ def test_root_config_loads_frozen_dataclasses(repo_root: Path) -> None:
     assert config.model.arch == "resnet18"
     assert config.attack is not None
     assert config.training is not None
+    assert config.tracking.enable is True
+    assert config.tracking.tracking_uri == "http://127.0.0.1:5000"
     assert config.attack.epsilon == 0.03137254901960784
+
+
+def test_apgd_attack_yaml_loads_optional_fields(repo_root: Path) -> None:
+    config = load_attack_config("apgd_ce_10", repo_root / "configs")
+    assert config.name == "APGD-CE"
+    assert config.rho == 0.75
+    assert config.n_restarts == 1

@@ -1,1 +1,1 @@
-"""Training loops and checkpoints."""
+"""Training service objects and checkpoint helpers."""

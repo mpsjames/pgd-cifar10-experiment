@@ -19,7 +19,7 @@ from src.evaluation.metrics import (
     robust_accuracy,
     ssim,
 )
-from src.models.normalize_wrapper import NormalizedModel
+from src.models.normalizer import Normalizer
 
 
 @dataclass(frozen=True)
@@ -77,7 +77,7 @@ class AttackEvaluator:
 
     def __init__(
         self,
-        model: NormalizedModel,
+        model: Normalizer,
         attack: BaseAttack,
         test_loader: DataLoader,
         device: torch.device,
@@ -118,9 +118,7 @@ class AttackEvaluator:
                 clean_probs = torch.softmax(self.model(x), dim=1)
                 clean_conf = clean_probs.gather(1, y[:, None]).squeeze(1)
             x_adv = self.attack.perturb(self.model, x, y)
-            verify_perturbation(
-                x, x_adv, self.attack.config.epsilon, self.attack.config.norm
-            )
+            verify_perturbation(x, x_adv, self.attack.config.epsilon, self.attack.config.norm)
             with torch.no_grad():
                 logits = self.model(x_adv)
                 adv_probs = torch.softmax(logits, dim=1)
@@ -156,8 +154,8 @@ class AttackEvaluator:
             n_samples=n_samples,
             per_sample_linf=linf_all.numpy() if self.keep_per_sample else None,
             per_sample_l2=l2_all.numpy() if self.keep_per_sample else None,
-            per_sample_confidence_drop=confidence_drop_all.numpy()
-            if self.keep_per_sample
-            else None,
+            per_sample_confidence_drop=(
+                confidence_drop_all.numpy() if self.keep_per_sample else None
+            ),
             per_sample_correct=correct.numpy() if self.keep_per_sample else None,
         )

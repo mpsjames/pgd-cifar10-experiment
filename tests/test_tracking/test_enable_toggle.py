@@ -7,17 +7,17 @@ from unittest.mock import patch
 
 import pytest
 
-from src.tracking import mlflow_logger
-from src.tracking.mlflow_logger import ExperimentTracker
+from src.tracking import tracker
+from src.tracking.tracker import ExperimentTracker
 
 
 def test_tracker_disabled_skips_mlflow_calls(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
-        mlflow_logger,
+        tracker,
         "_mlflow",
-        lambda: (_ for _ in ()).throw(AssertionError("mlflow should not import")),
+        lambda: iter([]).throw(AssertionError("mlflow should not import")),
     )
-    tracker = ExperimentTracker(
+    t = ExperimentTracker(
         "unit",
         "disabled-run",
         tracking_uri="http://127.0.0.1:5000",
@@ -25,16 +25,16 @@ def test_tracker_disabled_skips_mlflow_calls(monkeypatch, tmp_path: Path) -> Non
         enable=False,
     )
 
-    assert tracker.start_run() is None
-    tracker.log_params({"p": 1})
-    tracker.log_metrics({"asr": 0.25})
-    tracker.set_tags({"phase": "unit"})
-    tracker.end_run()
+    assert t.start_run() is None
+    t.log_params({"p": 1})
+    t.log_metrics({"asr": 0.25})
+    t.set_tags({"phase": "unit"})
+    t.end_run()
 
-    assert tracker.run_id is None
+    assert t.run_id is None
     payload = json.loads((tmp_path / "logs" / "disabled-run.json").read_text())
     assert payload["params"]["p"] == 1
-    assert payload["metrics"]["asr"] == 0.25
+    assert payload["metrics"]["asr"] == pytest.approx(0.25)
     assert payload["tags"]["phase"] == "unit"
 
 
@@ -50,12 +50,11 @@ def test_tracker_disabled_still_runs_file_logger(tmp_path: Path) -> None:
     tracker.log_metrics({"asr": 0.5})
     tracker.end_run()
 
-    per_run = tmp_path / "logs" / "file-log-run.log"
     global_log = tmp_path / "logs" / "experiment.log"
-    assert per_run.exists()
     assert global_log.exists()
-    assert "mlflow_enabled=False" in per_run.read_text()
-    assert "asr=0.5" in global_log.read_text()
+    content = global_log.read_text()
+    assert "mlflow_enabled=False" in content
+    assert "asr=0.5" in content
 
 
 def test_tracker_disabled_still_writes_json_sink(tmp_path: Path) -> None:
@@ -96,26 +95,28 @@ def test_no_mlflow_cli_flag_overrides_yaml_default(tmp_path: Path) -> None:
 
 
 def test_reader_returns_empty_when_mlflow_disabled(tmp_path: Path) -> None:
-    from src.experiments import notebook_reports
+    from src.reporting import mlflow_queries
 
-    with patch.object(notebook_reports, "_resolve_tracking_uri", return_value=None):
-        result = notebook_reports._read_transfer_mlflow_runs()
+    with patch.object(mlflow_queries, "resolve_tracking_uri", return_value=None):
+        result = mlflow_queries.read_transfer_mlflow_runs()
 
     assert result == []
 
 
 def test_reader_returns_empty_when_server_unreachable(tmp_path: Path, caplog) -> None:
-    from src.experiments import notebook_reports
-    from src.experiments.config import TrackingConfig
+    from src.reporting import mlflow_queries
 
     unreachable_uri = "http://127.0.0.1:1"
 
-    with patch.object(
-        notebook_reports,
-        "_resolve_tracking_uri",
-        return_value=unreachable_uri,
-    ), caplog.at_level(logging.WARNING, logger="src.experiments.notebook_reports"):
-        result = notebook_reports._read_transfer_mlflow_runs()
+    with (
+        patch.object(
+            mlflow_queries,
+            "resolve_tracking_uri",
+            return_value=unreachable_uri,
+        ),
+        caplog.at_level(logging.WARNING, logger="src.reporting.mlflow_queries"),
+    ):
+        result = mlflow_queries.read_transfer_mlflow_runs()
 
     assert result == []
     assert any("transfer" in r.message.lower() for r in caplog.records)

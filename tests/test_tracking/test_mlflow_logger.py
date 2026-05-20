@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import json
-import logging
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from src.tracking.mlflow_logger import ExperimentTracker
+from src.tracking.tracker import ExperimentTracker
 
 
 def test_json_sink_failure_tags_mlflow(monkeypatch, tmp_path: Path) -> None:
-    from src.tracking import mlflow_logger
+    from src.tracking import tracker
 
     tags: dict[str, str] = {}
 
@@ -26,14 +25,12 @@ def test_json_sink_failure_tags_mlflow(monkeypatch, tmp_path: Path) -> None:
         tracking=SimpleNamespace(MlflowClient=_Client),
         set_tracking_uri=lambda _uri: None,
         set_experiment=lambda _name: None,
-        start_run=lambda run_name, tags: SimpleNamespace(
-            info=SimpleNamespace(run_id="run-1")
-        ),
+        start_run=lambda run_name, tags: SimpleNamespace(info=SimpleNamespace(run_id="run-1")),
         log_params=lambda _params: None,
         set_tag=lambda key, value: tags.__setitem__(key, value),
         end_run=lambda status: None,
     )
-    monkeypatch.setattr(mlflow_logger, "_mlflow", lambda: fake_mlflow)
+    monkeypatch.setattr(tracker, "_mlflow", lambda: fake_mlflow)
 
     tracker = ExperimentTracker(
         "unit",
@@ -76,7 +73,7 @@ def test_tracker_logs_run_through_http_server(mlflow_server: str, tmp_path: Path
     assert payload["metrics"]["asr"] == pytest.approx(0.1)
 
 
-def test_logger_writes_per_run_and_global_files(tmp_path: Path) -> None:
+def test_logger_writes_experiment_log(tmp_path: Path) -> None:
     tracker = ExperimentTracker(
         "unit",
         "log-test",
@@ -87,7 +84,6 @@ def test_logger_writes_per_run_and_global_files(tmp_path: Path) -> None:
     tracker.log_metrics({"asr": 0.5})
     tracker.end_run()
 
-    assert (tmp_path / "logs" / "log-test.log").exists()
     assert (tmp_path / "logs" / "experiment.log").exists()
 
 

@@ -17,7 +17,6 @@ from src.experiments.config import (
     WRNConfig,
 )
 
-
 CONFIG_ROOT = Path(__file__).resolve().parents[2] / "configs"
 
 
@@ -54,9 +53,7 @@ def load_experiment_config(
     base = OmegaConf.load(config_root / "base" / f"{defaults['base']}.yaml")
     arch_cfg = OmegaConf.load(config_root / "architecture" / f"{arch_name}.yaml")
     attack_cfg = load_attack_config(attack_name, config_root) if attack_name else None
-    training_cfg = (
-        load_training_config(training_name, config_root) if training_name else None
-    )
+    training_cfg = load_training_config(training_name, config_root) if training_name else None
     if training_cfg is not None and arch_cfg.get("training") is not None:
         training_cfg = _override_training_batch(training_cfg, arch_cfg.training)
 
@@ -104,14 +101,11 @@ def load_attack_config(name: str, config_root: Path = CONFIG_ROOT) -> AttackConf
     _require_keys(resolved, required_keys, f"attack/{name}.yaml")
     extra = set(resolved) - (required_keys | optional_keys)
     if extra:
-        raise ValueError(
-            f"Unexpected AttackConfig keys in attack/{name}.yaml: {sorted(extra)}"
-        )
+        raise ValueError(f"Unexpected AttackConfig keys in attack/{name}.yaml: {sorted(extra)}")
     loss = resolved.get("loss")
     if loss is not None and loss not in {"margin", "cross_entropy"}:
         raise ValueError(
-            f"attack/{name}.yaml: 'loss' must be 'margin' or 'cross_entropy', "
-            f"got {loss!r}"
+            f"attack/{name}.yaml: 'loss' must be 'margin' or 'cross_entropy', got {loss!r}"
         )
     return AttackConfig(
         name=str(resolved["name"]),
@@ -124,9 +118,7 @@ def load_attack_config(name: str, config_root: Path = CONFIG_ROOT) -> AttackConf
         loss=loss,  # type: ignore[arg-type]  # mypy can't narrow str to Literal["margin","cross_entropy"]
         seed=int(resolved["seed"]) if resolved.get("seed") is not None else None,
         rho=float(resolved["rho"]) if resolved.get("rho") is not None else None,
-        n_restarts=int(resolved["n_restarts"])
-        if resolved.get("n_restarts") is not None
-        else None,
+        n_restarts=int(resolved["n_restarts"]) if resolved.get("n_restarts") is not None else None,
     )
 
 
@@ -161,10 +153,10 @@ def load_training_config(name: str, config_root: Path = CONFIG_ROOT) -> Training
             norm=str(inner["norm"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["Linf"] at runtime
             seed=int(inner["seed"]) if inner.get("seed") is not None else None,
             rho=float(inner["rho"]) if inner.get("rho") is not None else None,
-            n_restarts=int(inner["n_restarts"])
-            if inner.get("n_restarts") is not None
-            else None,
+            n_restarts=int(inner["n_restarts"]) if inner.get("n_restarts") is not None else None,
         )
+    if str(resolved["mode"]) == "adversarial" and inner_attack is None:
+        raise ValueError(f"training/{name}.yaml: adversarial mode requires inner_attack")
     milestones_raw = resolved.get("lr_milestones")
     lr_milestones: tuple[int, ...] | None
     if milestones_raw is None:
@@ -173,7 +165,8 @@ def load_training_config(name: str, config_root: Path = CONFIG_ROOT) -> Training
         lr_milestones = tuple(int(m) for m in milestones_raw)
     else:
         raise TypeError(
-            f"lr_milestones must be a list in training/{name}.yaml, got {type(milestones_raw).__name__}"
+            f"lr_milestones must be a list in training/{name}.yaml, "
+            f"got {type(milestones_raw).__name__}"
         )
     return TrainingConfig(
         mode=str(resolved["mode"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["clean","adversarial"]
@@ -187,10 +180,6 @@ def load_training_config(name: str, config_root: Path = CONFIG_ROOT) -> Training
         use_amp=bool(resolved.get("use_amp", True)),
         grad_clip=resolved.get("grad_clip"),  # type: ignore[arg-type]  # dict[str,Any] lookup loses float|None
         inner_attack=inner_attack,
-        resume_from=Path(resolved["resume_from"])
-        if resolved.get("resume_from")
-        else None,
-        save_every_epochs=int(resolved.get("save_every_epochs", 5)),
         lr_milestones=lr_milestones,
         lr_gamma=float(resolved.get("lr_gamma", 0.1)),
     )
@@ -255,9 +244,7 @@ def _defaults(root: DictConfig) -> dict[str, str]:
     return values
 
 
-def _override_training_batch(
-    config: TrainingConfig, arch_training: Any
-) -> TrainingConfig:
+def _override_training_batch(config: TrainingConfig, arch_training: Any) -> TrainingConfig:
     batch_size = int(arch_training.get("batch_size", config.batch_size))
     use_amp = bool(arch_training.get("use_amp", config.use_amp))
     return TrainingConfig(
@@ -272,8 +259,6 @@ def _override_training_batch(
         use_amp=use_amp,
         grad_clip=config.grad_clip,
         inner_attack=config.inner_attack,
-        resume_from=config.resume_from,
-        save_every_epochs=config.save_every_epochs,
         lr_milestones=config.lr_milestones,
         lr_gamma=config.lr_gamma,
     )
@@ -295,19 +280,21 @@ def _load_tracking_config(base: DictConfig) -> TrackingConfig:
     _require_keys(resolved, required_keys, "base/default.yaml:mlflow")
     extra = set(resolved) - (required_keys | optional_keys)
     if extra:
-        raise ValueError(
-            f"Unexpected MLflow config keys in base/default.yaml: {sorted(extra)}"
-        )
+        raise ValueError(f"Unexpected MLflow config keys in base/default.yaml: {sorted(extra)}")
     return TrackingConfig(
         enable=bool(resolved.get("enable", True)),
         tracking_uri=str(resolved["tracking_uri"]),
         experiment_name=str(resolved["experiment_name"]),
-        http_request_timeout_s=int(resolved["http_request_timeout_s"])
-        if resolved.get("http_request_timeout_s") is not None
-        else None,
-        http_request_max_retries=int(resolved["http_request_max_retries"])
-        if resolved.get("http_request_max_retries") is not None
-        else None,
+        http_request_timeout_s=(
+            int(resolved["http_request_timeout_s"])
+            if resolved.get("http_request_timeout_s") is not None
+            else None
+        ),
+        http_request_max_retries=(
+            int(resolved["http_request_max_retries"])
+            if resolved.get("http_request_max_retries") is not None
+            else None
+        ),
     )
 
 

@@ -1,7 +1,7 @@
 # PGD Adversarial Attack & Defense — Multi-Architecture Study on CIFAR-10
 
-> Reproducible CIFAR-10 study of PGD-based attacks, adversarial training, and
-> transfer behavior across four image-classification architectures.
+> Reproducible CIFAR-10 study of PGD/APGD attacks, adversarial training, and
+> transfer behavior across three image-classification architectures.
 >
 > The repo is organized as production code under `src/`, thin CLI entrypoints
 > under `scripts/`, and executable report notebooks that stay honest when the
@@ -9,9 +9,9 @@
 
 ## What this is
 
-- A CIFAR-10-only implementation of FGSM, BIM, and PGD white-box evaluation, transfer attacks, epsilon sweeps, and Madry-style adversarial training.
+- A CIFAR-10-only implementation of FGSM, BIM, PGD, APGD-CE white-box evaluation, transfer attacks, epsilon sweeps, and APGD adversarial training.
 - A reproducibility-oriented experiment harness with frozen configs, deterministic seeding, MLflow plus JSON tracking, and notebook reports backed by shared `src/` helpers.
-- A multi-architecture benchmark covering `resnet18`, `wrn_34_10`, `resnet50`, and `vgg16_bn`.
+- A multi-architecture benchmark covering `resnet18`, `wrn_34_10`, and `vit_tiny`.
 - A smoke-test-friendly codebase: when full checkpoints are missing, scripts and notebooks emit pending markers instead of fabricating results.
 - Non-goals: no L2/L1/L0 attacks, no targeted attacks, no AutoAttack baseline, no TRADES/MART-style defenses, and no ImageNet expansion.
 
@@ -38,7 +38,7 @@ Full reproduction entrypoint:
 bash scripts/reproduce.sh
 ```
 
-The full campaign trains clean checkpoints for all four architectures across
+The full campaign trains clean checkpoints for all three architectures across
 seeds `{42, 123, 456, 789, 1024}`, runs single-seed adversarial training,
 executes white-box and transfer evaluations, performs the epsilon sweep, and
 executes all notebooks in place.
@@ -52,15 +52,17 @@ through MLflow tags such as `fallback_triggered=true` and
 ## Architecture
 
 ```text
-configs/    Hydra-style YAML composition consumed through OmegaConf
-src/        Production code for attacks, data, models, training, evaluation, tracking, viz
-scripts/    Thin CLI entrypoints for training and evaluation workflows
-notebooks/  Executable report notebooks NB01-NB11
-tests/      Pytest suite covering attacks, training, tracking, notebooks, and viz smoke paths
+scripts/ -> src/cli/ -> src/experiments/runner.py
+                    -> src/training/{CleanTrainer,AdversarialTrainer}
+                    -> src/evaluation/AttackEvaluator
+                    -> src/{attacks,models,data,tracking}
+notebooks/ -> src/reporting.nb*_*
 ```
 
-See [plan.md](plan.md) §2-§3 for the full module-boundary contract and
-repository layout.
+Stateful workflows use service objects (`ExperimentRunner`, trainers, and
+`AttackEvaluator`). Pure transformations and serialization helpers remain
+functions. Notebook code imports only from `src.reporting`; scripts share
+bootstrap/checkpoint/smoke behavior through `src.cli`.
 
 ## Key contracts
 
@@ -74,11 +76,12 @@ repository layout.
 ## CLI
 
 ```text
-scripts/train_clean.py          --arch {resnet18,wrn_34_10,resnet50,vgg16_bn} --seed N [--epochs E] [--smoke]
+scripts/train_clean.py          --arch {resnet18,wrn_34_10,vit_tiny} --seed N [--epochs E] [--smoke]
 scripts/train_adversarial.py    --arch ... --seed N [--resume PATH] [--smoke]
-scripts/run_white_box.py        --arch ... [--seed N] [--smoke]
-scripts/run_transfer.py         --mode {cross_arch,cross_seed} [--max-pairs K] [--smoke]
+scripts/run_white_box.py        --arch ... [--attack ATTACK] [--seed N] [--smoke]
+scripts/run_transfer.py         --mode {cross_arch,cross_seed,gray_box} [--attack ATTACK] [--max-pairs K] [--smoke]
 scripts/run_epsilon_sweep.py    [--arch ARCH] [--seed N] [--epsilon EPS] [--smoke]
+scripts/run_black_box_square.py --arch ... [--variant clean|adv] [--num-queries N] [--smoke]
 scripts/download_robustbench_wrn.py
 scripts/reproduce.sh        [--smoke]
 ```
@@ -119,17 +122,21 @@ resolve these YAML fragments into frozen dataclasses under `src/experiments/`.
 
 ## Experiment tracking
 
-Dual sink:
+Tracking uses an MLflow HTTP server plus always-on local mirrors:
 
-- MLflow file backend under `mlruns/`
+- MLflow API at `http://127.0.0.1:5000`
 - JSON mirror under `results/logs/`
+- Per-run log files plus rotating `results/logs/experiment.log`
 
 If the JSON sink fails, the MLflow run is preserved and tagged with
 `json_sink_failed=true` instead of aborting the experiment.
 
 ```bash
-mlflow ui --port 5000
+bash scripts/mlflow_server.sh
 ```
+
+Browse the UI at `http://127.0.0.1:5000`. For one-off local or CI smoke runs
+without the server, pass `--no-mlflow`; JSON and file logs still run.
 
 ## Documentation
 

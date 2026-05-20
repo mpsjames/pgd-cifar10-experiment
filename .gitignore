@@ -10,3 +10,4 @@
 *.py[cod]
 *.egg-info/
 
+.claude/worktrees/

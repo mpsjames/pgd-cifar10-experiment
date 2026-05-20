@@ -23,9 +23,7 @@ def validate_input_batch(x: Tensor, y: Tensor) -> None:
     if y.dtype != torch.long:
         raise AssertionError(f"Expected long labels, got {y.dtype}")
     if x.ndim != 4 or x.shape[1:] != (3, 32, 32):
-        raise AssertionError(
-            f"Expected input shape (B, 3, 32, 32), got {tuple(x.shape)}"
-        )
+        raise AssertionError(f"Expected input shape (B, 3, 32, 32), got {tuple(x.shape)}")
     if y.ndim != 1:
         raise AssertionError(f"Expected labels shape (B,), got {tuple(y.shape)}")
     if x.shape[0] != y.shape[0]:
@@ -34,6 +32,4 @@ def validate_input_batch(x: Tensor, y: Tensor) -> None:
         x_min = float(x.min().item())
         x_max = float(x.max().item())
         if x_min < 0.0 or x_max > 1.0:
-            raise AssertionError(
-                f"Input must be in [0, 1], got [{x_min:.4f}, {x_max:.4f}]"
-            )
+            raise AssertionError(f"Input must be in [0, 1], got [{x_min:.4f}, {x_max:.4f}]")

@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+import torch.nn.functional as F
 from torch import Tensor, nn
 
+from src.data.validation import validate_input_batch
 from src.experiments.config import AttackConfig
 
 
@@ -19,17 +21,26 @@ class BaseAttack(ABC):
     """Define the shared contract for adversarial attacks.
 
     Subclass contract:
-        - Store the immutable `AttackConfig` passed to `__init__`.
+        - Call `super().__init__(config)` before validating family-specific
+          hyperparameters.
         - Accept raw image batches in `[0, 1]` rather than pre-normalized
-        tensors.
+          tensors.
         - Return adversarial samples with the same shape as the input batch.
         - Keep gradient-sensitive attack math in fp32 when precision matters.
+        - Restore the incoming model training mode before returning.
 
     Attributes:
         config: Immutable attack hyperparameters loaded from YAML.
     """
 
-    def __init__(self, config: AttackConfig):
+    SUPPORTED_NORMS: tuple[str, ...] = ("Linf",)
+
+    def __init__(self, config: AttackConfig) -> None:
+        if config.norm not in self.SUPPORTED_NORMS:
+            raise ValueError(
+                f"{type(self).__name__} only supports {self.SUPPORTED_NORMS}, "
+                f"got norm={config.norm!r}"
+            )
         self.config = config
 
     @abstractmethod
@@ -48,3 +59,28 @@ class BaseAttack(ABC):
             Adversarial samples with the same shape as `x`. The caller must run
             `verify_perturbation` before reporting any derived metric.
         """
+
+    @staticmethod
+    def _loss(model: nn.Module, x: Tensor, y: Tensor, *, reduction: str = "none") -> Tensor:
+        """Compute cross-entropy with an explicit reduction contract."""
+        return F.cross_entropy(model(x), y, reduction=reduction)
+
+    @staticmethod
+    def _project_linf(x_orig: Tensor, x_adv: Tensor, epsilon: float) -> Tensor:
+        """Project `x_adv` into the Linf epsilon-ball around `x_orig`."""
+        delta = (x_adv - x_orig).clamp(-epsilon, epsilon)
+        return (x_orig + delta).clamp(0.0, 1.0)
+
+    @staticmethod
+    def _prepare(model: nn.Module, x: Tensor, y: Tensor) -> tuple[bool, Tensor]:
+        """Validate inputs, switch to eval mode, and return fp32 clean inputs."""
+        validate_input_batch(x, y)
+        was_training = model.training
+        model.eval()
+        return was_training, x.detach().float()
+
+    @staticmethod
+    def _restore(model: nn.Module, was_training: bool) -> None:
+        """Restore the model's incoming training state."""
+        if was_training:
+            model.train()

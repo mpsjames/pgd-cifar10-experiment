@@ -146,8 +146,6 @@ class TrainingConfig:
             use by training entry points.
         inner_attack: Required for adversarial training; `None` for clean
             training.
-        resume_from: Optional resume-checkpoint path.
-        save_every_epochs: Resume-checkpoint cadence.
         lr_milestones: Required when `scheduler == "multistep"`.
         lr_gamma: Multiplicative factor used by the multistep scheduler.
     """
@@ -163,8 +161,6 @@ class TrainingConfig:
     use_amp: bool = True
     grad_clip: float | None = None
     inner_attack: AttackConfig | None = None
-    resume_from: Path | None = None
-    save_every_epochs: int = 5
     lr_milestones: tuple[int, ...] | None = None
     lr_gamma: float = 0.1
 

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
 import torch
 from torch import nn
 from torch.amp import GradScaler
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.attacks.base import BaseAttack
-from src.experiments.config import AttackConfig
-from src.models.normalize_wrapper import NormalizedModel
-from src.experiments.config import TrainingConfig
-from src.training.adversarial import adversarial_train_epoch
+from src.experiments.config import AttackConfig, ExperimentConfig, TrainingConfig
+from src.experiments.config_loader import load_experiment_config
+from src.models.normalizer import Normalizer
+from src.training.adversarial import AdversarialTrainer
 
 
 class ModeRecordingAttack(BaseAttack):
@@ -26,85 +29,47 @@ class ModeRecordingAttack(BaseAttack):
         )
         self.model_training_modes: list[bool] = []
 
-    def perturb(
-        self, model: nn.Module, x: torch.Tensor, y: torch.Tensor
-    ) -> torch.Tensor:
+    def perturb(self, model: nn.Module, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         self.model_training_modes.append(model.training)
         return x.detach().clone()
 
 
-def test_eval_mode_during_inner_attack_and_train_mode_outer_update() -> None:
+class Tracker:
+    def __init__(self) -> None:
+        self.metrics: list[tuple[dict[str, float], int | None]] = []
+        self.tags: dict[str, str] = {}
+        self.params: dict[str, object] = {}
+
+    def log_metrics(self, metrics, step=None):
+        self.metrics.append((metrics, step))
+
+    def set_tags(self, tags):
+        self.tags.update(tags)
+
+    def log_params(self, params):
+        self.params.update(params)
+
+    def log_artifact(self, *_args, **_kwargs):
+        return None
+
+
+def _model() -> Normalizer:
     inner = nn.Sequential(nn.Flatten(), nn.Linear(3 * 32 * 32, 10))
-    model = NormalizedModel(inner, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
-    attack = ModeRecordingAttack()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
-    scaler = GradScaler("cuda", enabled=False)
-    x = torch.rand(4, 3, 32, 32)
-    y = torch.tensor([0, 1, 2, 3], dtype=torch.long)
-    loader = DataLoader(TensorDataset(x, y), batch_size=2)
-    metrics = adversarial_train_epoch(
-        model, loader, optimizer, scaler, attack, torch.device("cpu"), use_amp=False
-    )
-    assert attack.model_training_modes == [False, False]
-    assert model.training is True
-    assert set(metrics) == {"loss", "acc_on_adv"}
+    return Normalizer(inner, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
 
 
-def test_no_grad_leak_from_inner_to_outer() -> None:
-    inner = nn.Sequential(nn.Flatten(), nn.Linear(3 * 32 * 32, 10))
-    model = NormalizedModel(inner, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
-    attack = ModeRecordingAttack()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
-    scaler = GradScaler("cuda", enabled=False)
-    x = torch.rand(2, 3, 32, 32)
-    y = torch.tensor([0, 1], dtype=torch.long)
-    adversarial_train_epoch(
-        model,
-        DataLoader(TensorDataset(x, y), batch_size=2),
-        optimizer,
-        scaler,
-        attack,
-        torch.device("cpu"),
-        use_amp=False,
-    )
-    assert all(
-        param.grad is not None for param in model.parameters() if param.requires_grad
-    )
+def _loader(n: int = 4) -> DataLoader:
+    x = torch.rand(n, 3, 32, 32)
+    y = torch.arange(n, dtype=torch.long) % 10
+    return DataLoader(TensorDataset(x, y), batch_size=2)
 
 
-def test_adversarial_train_non_oom_runtime_error_propagates_without_checkpoint(
-    monkeypatch,
-) -> None:
-    from src.training import adversarial as module
+def _config(training: TrainingConfig) -> ExperimentConfig:
+    return replace(load_experiment_config(arch="resnet18", training="apgd_at"), training=training)
 
-    class Tracker:
-        def log_metrics(self, metrics, step=None):
-            raise AssertionError("log_metrics should not be reached")
 
-        def set_tags(self, tags):
-            raise AssertionError("set_tags should not be reached")
-
-        def log_params(self, params):
-            raise AssertionError("log_params should not be reached")
-
-    def boom(*_args, **_kwargs):
-        raise RuntimeError("shape mismatch")
-
-    saved = {"called": False}
-    monkeypatch.setattr(module, "adversarial_train_epoch", boom)
-    monkeypatch.setattr(
-        module,
-        "save_resume_checkpoint",
-        lambda *_args, **_kwargs: saved.__setitem__("called", True),
-    )
-
-    inner = nn.Sequential(nn.Flatten(), nn.Linear(3 * 32 * 32, 10))
-    model = NormalizedModel(inner, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
-    loader = DataLoader(
-        TensorDataset(torch.rand(2, 3, 32, 32), torch.tensor([0, 1], dtype=torch.long)),
-        batch_size=2,
-    )
-    config = TrainingConfig(
+def _training_config() -> TrainingConfig:
+    return TrainingConfig(
         mode="adversarial",
         epochs=1,
         batch_size=2,
@@ -117,20 +82,62 @@ def test_adversarial_train_non_oom_runtime_error_propagates_without_checkpoint(
             "PGD", epsilon=0.0, alpha=0.0, num_steps=0, random_start=False, norm="Linf"
         ),
     )
-    with torch.random.fork_rng():
-        try:
-            module.adversarial_train(
-                model,
-                loader,
-                loader,
-                config,
-                Tracker(),
-                torch.device("cpu"),
-                arch="resnet18",
-                seed=42,
-            )
-        except RuntimeError as exc:
-            assert "shape mismatch" in str(exc)
-        else:
-            raise AssertionError("RuntimeError was not propagated")
-    assert saved["called"] is False
+
+
+def test_inner_attack_runs_in_eval_mode() -> None:
+    attack = ModeRecordingAttack()
+    trainer = AdversarialTrainer(
+        _config(_training_config()),
+        _model(),
+        _loader(),
+        _loader(),
+        Tracker(),
+        inner_attack=attack,
+        device=torch.device("cpu"),
+    )
+    optimizer = torch.optim.SGD(trainer.model.parameters(), lr=0.01)
+    scaler = GradScaler("cuda", enabled=False)
+
+    trainer._train_epoch(optimizer, scaler)
+
+    assert attack.model_training_modes == [False, False]
+
+
+def test_outer_update_runs_in_train_mode_and_records_metrics() -> None:
+    attack = ModeRecordingAttack()
+    trainer = AdversarialTrainer(
+        _config(_training_config()),
+        _model(),
+        _loader(),
+        _loader(),
+        Tracker(),
+        inner_attack=attack,
+        device=torch.device("cpu"),
+    )
+    optimizer = torch.optim.SGD(trainer.model.parameters(), lr=0.01)
+    scaler = GradScaler("cuda", enabled=False)
+
+    metrics = trainer._train_epoch(optimizer, scaler)
+
+    assert trainer.model.training is True
+    assert set(metrics) == {"loss", "acc_on_adv"}
+
+
+def test_gradient_flow_in_outer_update() -> None:
+    trainer = AdversarialTrainer(
+        _config(_training_config()),
+        _model(),
+        _loader(2),
+        _loader(2),
+        Tracker(),
+        inner_attack=ModeRecordingAttack(),
+        device=torch.device("cpu"),
+    )
+    optimizer = torch.optim.SGD(trainer.model.parameters(), lr=0.01)
+    scaler = GradScaler("cuda", enabled=False)
+
+    trainer._train_epoch(optimizer, scaler)
+
+    assert all(
+        param.grad is not None for param in trainer.model.parameters() if param.requires_grad
+    )
