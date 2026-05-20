@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from src.cli.runner import build_common_parser
 from src.cli.transfer import (
-    PAIR_FILES as _PAIR_FILES,
+    TRANSFER_MODE_CONFIGS as _PAIR_FILES,
 )
 from src.cli.transfer import (
     load_pairs as _load_pairs,

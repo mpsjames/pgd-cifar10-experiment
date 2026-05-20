@@ -10,7 +10,7 @@ from src.experiments.checkpoint_paths import adv_checkpoint_path, clean_checkpoi
 from src.experiments.config_loader import load_experiment_config
 from src.models.builders import build_model, load_model_from_checkpoint, wrap_with_normalization
 
-CheckpointVariant = Literal["clean", "adversarial"]
+CheckpointVariant = Literal["clean", "adv"]
 
 
 @dataclass(frozen=True)
@@ -71,7 +71,7 @@ def reporting_model_pair(arch: str, seed: int) -> ReportingModelPair:
         adversarial=ReportingCheckpoint(
             arch=arch,
             seed=seed,
-            variant="adversarial",
+            variant="adv",
             path=adv_checkpoint_path(arch, seed),
         ),
     )

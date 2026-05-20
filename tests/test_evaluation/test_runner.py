@@ -5,7 +5,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.attacks.pgd import PGDAttack
-from src.evaluation.runner import AttackEvaluator
+from src.evaluation.attack_evaluator import AttackEvaluator
 from src.experiments.config import AttackConfig
 from src.models.normalizer import Normalizer
 

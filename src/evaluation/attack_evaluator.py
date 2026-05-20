@@ -73,6 +73,9 @@ class AttackEvaluator:
         device: Target device for attack generation and inference.
         keep_per_sample: When True, retain per-sample arrays in the returned
             `EvaluationResult`.
+        perturb_model: Optional surrogate model used for attack generation.
+            When set, `attack.perturb` receives this model instead of `model`.
+            Clean and adversarial predictions always use `model`.
     """
 
     def __init__(
@@ -82,12 +85,14 @@ class AttackEvaluator:
         test_loader: DataLoader,
         device: torch.device,
         keep_per_sample: bool = False,
+        perturb_model: "Normalizer | None" = None,
     ) -> None:
         self.model = model
         self.attack = attack
         self.test_loader = test_loader
         self.device = device
         self.keep_per_sample = keep_per_sample
+        self.perturb_model = perturb_model
 
     def run(self) -> EvaluationResult:
         """Evaluate the configured attack over the full loader.
@@ -102,6 +107,9 @@ class AttackEvaluator:
             downstream tables.
         """
         self.model.to(self.device).eval()
+        if self.perturb_model is not None:
+            self.perturb_model.to(self.device).eval()
+        attack_model = self.perturb_model if self.perturb_model is not None else self.model
         predictions: list[torch.Tensor] = []
         labels: list[torch.Tensor] = []
         linfs: list[torch.Tensor] = []
@@ -117,7 +125,7 @@ class AttackEvaluator:
             with torch.no_grad():
                 clean_probs = torch.softmax(self.model(x), dim=1)
                 clean_conf = clean_probs.gather(1, y[:, None]).squeeze(1)
-            x_adv = self.attack.perturb(self.model, x, y)
+            x_adv = self.attack.perturb(attack_model, x, y)
             verify_perturbation(x, x_adv, self.attack.config.epsilon, self.attack.config.norm)
             with torch.no_grad():
                 logits = self.model(x_adv)

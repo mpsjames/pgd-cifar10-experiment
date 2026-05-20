@@ -112,9 +112,9 @@ class ModelConfig:
         checkpoint_path: Optional external checkpoint path. Most entry points
             construct the canonical path separately and leave this as `None`.
         num_classes: Number of output classes; CIFAR-10 uses 10.
-        cifar_mean: Channel-wise CIFAR-10 mean used by `NormalizedModel`.
+        cifar_mean: Channel-wise CIFAR-10 mean used by `Normalizer`.
         cifar_std: Channel-wise CIFAR-10 standard deviation used by
-            `NormalizedModel`.
+            `Normalizer`.
         vit: ViT-specific hyperparameters; `None` for non-ViT architectures.
         wrn: WideResNet-specific hyperparameters; `None` for non-WRN architectures.
     """

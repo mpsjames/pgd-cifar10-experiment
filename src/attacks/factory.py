@@ -10,6 +10,27 @@ from src.attacks.square import SquareAttack
 from src.experiments.config import AttackConfig
 
 
+def replace_attack_epsilon(cfg: "AttackConfig", epsilon: float) -> "AttackConfig":
+    """Return a copy of *cfg* with epsilon replaced and dependent fields adjusted.
+
+    Args:
+        cfg: Source attack config.
+        epsilon: New Linf budget.
+
+    Returns:
+        New `AttackConfig` with updated `epsilon`, `alpha` (clamped to the new
+        budget), and `random_start` (disabled when epsilon is zero).
+    """
+    import dataclasses
+
+    return dataclasses.replace(
+        cfg,
+        epsilon=epsilon,
+        alpha=min(cfg.alpha, epsilon) if epsilon > 0 else 0.0,
+        random_start=cfg.random_start and epsilon > 0,
+    )
+
+
 class AttackFactory:
     """Registry-based factory for attack implementations.
 

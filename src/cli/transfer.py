@@ -10,14 +10,14 @@ from src.attacks.factory import AttackFactory
 from src.cli.runner import bootstrap
 from src.experiments.runner import ExperimentRunner
 
-PAIR_FILES = {
+TRANSFER_MODE_CONFIGS = {
     "cross_arch": "configs/transfer/transfer_pairs.yaml",
     "gray_box": "configs/transfer/gray_box_pairs.yaml",
 }
 
 
 def load_pairs(mode: str) -> list[dict]:
-    cfg = OmegaConf.load(Path(PAIR_FILES[mode]))
+    cfg = OmegaConf.load(Path(TRANSFER_MODE_CONFIGS[mode]))
     return [dict(item) for item in cfg.pairs]
 
 

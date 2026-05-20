@@ -72,7 +72,7 @@ def _pending_row(arch: str, attack_name: str, num_steps: int) -> dict[str, objec
 
 def _render_main_figure(rows: list[dict[str, object]]) -> Path:
     fig_path = Path("results/figures/04_main.png")
-    visible = [r for r in rows if str(r.get("asr_mean", "")) != ""]
+    visible = [r for r in rows if str(r.get("asr", "")) != ""]
     fig, ax = plt.subplots(figsize=(7, 4))
     if not visible:
         ax.text(0.5, 0.5, "full-campaign-pending", ha="center", va="center")
@@ -90,22 +90,19 @@ def _render_main_figure(rows: list[dict[str, object]]) -> Path:
         stds = []
         for attack_name in NB04_ATTACK_NAMES:
             match = [r for r in visible if r["arch"] == arch and r["attack"] == attack_name]
-            means.append(float(match[0]["asr_mean"]) if match else 0.0)
-            stds.append(float(match[0]["asr_std"]) if match and match[0].get("asr_std") else 0.0)
+            means.append(float(match[0]["asr"]) if match else 0.0)
         ax.bar(
             indices + (offset - (len(archs) - 1) / 2.0) * width,
             means,
             width,
-            yerr=stds,
             label=arch,
-            capsize=2,
         )
     ax.set_xticks(indices)
     ax.set_xticklabels(NB04_ATTACK_NAMES)
     ax.set_ylabel("ASR")
     ax.set_title(
         "White-box ASR on CIFAR-10 test (n=10000)\n"
-        "attacks={FGSM,BIM-10,PGD-10,PGD-40,PGD-100} | bars=+-1 std across seeds"
+        "attacks={FGSM,BIM-10,PGD-10,PGD-40,PGD-100} | seed=42"
     )
     ax.legend(title="architecture", fontsize=8)
     fig.tight_layout()
@@ -122,7 +119,7 @@ def _render_time_vs_asr(
     visible = [
         r
         for r in rows
-        if str(r.get("asr_mean", "")) != "" and str(r.get("time_per_image_ms_mean", "")) != ""
+        if str(r.get("asr", "")) != "" and str(r.get("time_per_image_ms", "")) != ""
     ]
     fig, ax = plt.subplots(figsize=(6, 4))
     if not visible:
@@ -135,8 +132,8 @@ def _render_time_vs_asr(
     archs = sorted({str(r["arch"]) for r in visible})
     for arch in archs:
         arch_rows = [r for r in visible if r["arch"] == arch]
-        xs = [float(r["time_per_image_ms_mean"]) for r in arch_rows]
-        ys = [float(r["asr_mean"]) for r in arch_rows]
+        xs = [float(r["time_per_image_ms"]) for r in arch_rows]
+        ys = [float(r["asr"]) for r in arch_rows]
         labels = [str(r["attack"]) for r in arch_rows]
         ax.scatter(xs, ys, label=arch)
         for x, y, label in zip(xs, ys, labels, strict=True):

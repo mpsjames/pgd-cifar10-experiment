@@ -30,8 +30,10 @@ class CleanTrainer(BaseTrainer):
         for epoch in range(self.training_config.epochs):
             metrics = self._train_epoch(optimizer, scaler)
             scheduler.step()
+            val_acc = self._val_epoch()
+            metrics["val_acc"] = val_acc
             history.append(metrics)
-            best_metric = max(best_metric, metrics["acc"])
+            best_metric = max(best_metric, val_acc)
             self.tracker.log_metrics(metrics, step=epoch)
 
         final_path = clean_checkpoint_path(self.arch, self.seed)
@@ -43,6 +45,18 @@ class CleanTrainer(BaseTrainer):
             elapsed_seconds=time.perf_counter() - start,
             epochs_completed=self.training_config.epochs,
         )
+
+    def _val_epoch(self) -> float:
+        self.model.eval()
+        total_correct = 0
+        total = 0
+        with torch.no_grad():
+            for x, y in self.val_loader:
+                x, y = x.to(self.device), y.to(self.device)
+                logits = self.model(x)
+                total_correct += int((logits.argmax(dim=1) == y).sum().item())
+                total += y.size(0)
+        return total_correct / max(total, 1)
 
     def _train_epoch(self, optimizer: Optimizer, scaler: GradScaler) -> dict[str, float]:
         self.model.train()

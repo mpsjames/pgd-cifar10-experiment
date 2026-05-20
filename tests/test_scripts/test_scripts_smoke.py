@@ -40,13 +40,15 @@ def test_white_box_missing_checkpoint_smoke_falls_back(tmp_path: Path, monkeypat
 
 
 def test_white_box_missing_checkpoint_non_smoke_raises(tmp_path: Path, monkeypatch) -> None:
+    import pytest
+
     from src.cli import loader as cli_loader
     from src.experiments.config_loader import load_experiment_config
 
     monkeypatch.chdir(tmp_path)
     exp_config = load_experiment_config(arch="resnet18", attack="pgd_10", seed=42)
 
-    try:
+    with pytest.raises(FileNotFoundError, match="checkpoints/clean/resnet18_seed42.pt"):
         cli_loader.load_checkpoint_or_smoke(
             arch="resnet18",
             seed=42,
@@ -55,7 +57,3 @@ def test_white_box_missing_checkpoint_non_smoke_raises(tmp_path: Path, monkeypat
             smoke=False,
             model_config=exp_config.model,
         )
-    except FileNotFoundError as exc:
-        assert "checkpoints/clean/resnet18_seed42.pt" in str(exc)
-    else:
-        raise AssertionError("missing non-smoke checkpoint should raise")

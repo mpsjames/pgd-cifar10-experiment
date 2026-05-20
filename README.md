@@ -29,8 +29,7 @@ bash scripts/reproduce.sh --smoke
 
 ## Reproducibility
 
-This project reports `mean +- std` across 5 seeds for clean-model phases and
-explicit single-seed disclosure for adversarial training (`seed=42`).
+This project reports single-seed results with `seed=42` for all phases.
 
 Full reproduction entrypoint:
 
@@ -38,10 +37,9 @@ Full reproduction entrypoint:
 bash scripts/reproduce.sh
 ```
 
-The full campaign trains clean checkpoints for all three architectures across
-seeds `{42, 123, 456, 789, 1024}`, runs single-seed adversarial training,
-executes white-box and transfer evaluations, performs the epsilon sweep, and
-executes all notebooks in place.
+The full campaign trains clean checkpoints for all three architectures with
+`seed=42`, runs adversarial training, executes white-box and transfer
+evaluations, performs the epsilon sweep, and executes all notebooks in place.
 
 Hardware target: NVIDIA A1000 4 GB VRAM. Expected runtime is roughly
 119-141 GPU-hours. WRN-34-10 adversarial training may fall back to the
@@ -77,12 +75,11 @@ bootstrap/checkpoint/smoke behavior through `src.cli`.
 
 ```text
 scripts/train_clean.py          --arch {resnet18,wrn_34_10,vit_tiny} --seed N [--epochs E] [--smoke]
-scripts/train_adversarial.py    --arch ... --seed N [--resume PATH] [--smoke]
+scripts/train_adversarial.py    --arch ... --seed N [--smoke]
 scripts/run_white_box.py        --arch ... [--attack ATTACK] [--seed N] [--smoke]
-scripts/run_transfer.py         --mode {cross_arch,cross_seed,gray_box} [--attack ATTACK] [--max-pairs K] [--smoke]
+scripts/run_transfer.py         --mode {cross_arch,gray_box} [--attack ATTACK] [--max-pairs K] [--smoke]
 scripts/run_epsilon_sweep.py    [--arch ARCH] [--seed N] [--epsilon EPS] [--smoke]
 scripts/run_black_box_square.py --arch ... [--variant clean|adv] [--num-queries N] [--smoke]
-scripts/download_robustbench_wrn.py
 scripts/reproduce.sh        [--smoke]
 ```
 
@@ -92,7 +89,7 @@ Examples:
 python scripts/train_clean.py --arch resnet18 --seed 42 --epochs 100
 python scripts/train_adversarial.py --arch resnet18 --seed 42 --epochs 100
 python scripts/run_white_box.py --arch resnet18 --seed 42
-python scripts/run_transfer.py --mode cross_seed --seed 42
+python scripts/run_transfer.py --mode cross_arch --seed 42
 python scripts/run_epsilon_sweep.py --arch resnet18 --seed 42
 ```
 
@@ -132,7 +129,7 @@ If the JSON sink fails, the MLflow run is preserved and tagged with
 `json_sink_failed=true` instead of aborting the experiment.
 
 ```bash
-bash scripts/mlflow_server.sh
+bash scripts/mlflow.sh
 ```
 
 Browse the UI at `http://127.0.0.1:5000`. For one-off local or CI smoke runs

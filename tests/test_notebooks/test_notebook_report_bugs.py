@@ -81,7 +81,7 @@ def test_transfer_mlflow_rows_carry_gray_box_variants(tmp_path: Path, monkeypatc
 def test_nb04_main_results_schema_includes_new_columns(tmp_path: Path, monkeypatch) -> None:
     from pathlib import Path as _Path
 
-    from src.evaluation.runner import EvaluationResult
+    from src.evaluation.attack_evaluator import EvaluationResult
     from src.reporting import nb04_main_results as reports
 
     monkeypatch.chdir(tmp_path)

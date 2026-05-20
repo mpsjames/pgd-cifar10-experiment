@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from src.evaluation.runner import AttackEvaluator, EvaluationResult
+from src.evaluation.attack_evaluator import AttackEvaluator, EvaluationResult
 from src.reporting.constants import SEED
 from src.reporting.data_loaders import evaluation_loader
 

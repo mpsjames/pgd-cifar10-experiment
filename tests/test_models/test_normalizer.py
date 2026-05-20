@@ -6,7 +6,7 @@ from torch import nn
 from src.models.normalizer import Normalizer
 
 
-def test_normalize_wrapper_applies_expected_formula() -> None:
+def test_normalizer_applies_expected_formula() -> None:
     inner = nn.Conv2d(3, 1, kernel_size=1, bias=False)
     inner.weight.data.fill_(1.0)
     model = Normalizer(inner, mean=(0.5, 0.25, 0.0), std=(0.5, 0.25, 1.0))
@@ -16,7 +16,7 @@ def test_normalize_wrapper_applies_expected_formula() -> None:
     assert torch.allclose(out, expected)
 
 
-def test_normalize_wrapper_buffers_move_with_device() -> None:
+def test_normalizer_buffers_move_with_device() -> None:
     inner = nn.Identity()
     model = Normalizer(inner, mean=(0.1, 0.2, 0.3), std=(1.0, 1.0, 1.0))
     model = model.to(torch.device("cpu"))

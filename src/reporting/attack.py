@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
+from src.attacks.factory import replace_attack_epsilon
 from src.attacks.pgd import PGDAttack
 from src.experiments.config import AttackConfig
 from src.experiments.config_loader import load_attack_config
@@ -23,12 +22,7 @@ def epsilon_grid() -> list[float]:
 
 def pgd_at_epsilon(epsilon: float) -> AttackConfig:
     base = load_attack_config("pgd_10")
-    return replace(
-        base,
-        epsilon=epsilon,
-        alpha=min(base.alpha, epsilon) if epsilon > 0 else 0.0,
-        random_start=base.random_start and epsilon > 0,
-    )
+    return replace_attack_epsilon(base, epsilon)
 
 
 def pgd_attack_at_epsilon(epsilon: float) -> PGDAttack:

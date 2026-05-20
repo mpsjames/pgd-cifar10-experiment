@@ -21,11 +21,11 @@ fi
 ARCHES=(resnet18 wrn_34_10 vit_tiny)
 
 for arch in "${ARCHES[@]}"; do
-  "${PYTHON}" scripts/train_clean.py --arch "${arch}" --seed 42 --epochs 5
+  "${PYTHON}" scripts/train_clean.py --arch "${arch}" --seed 42 --epochs 100
 done
 
 for arch in "${ARCHES[@]}"; do
-  "${PYTHON}" scripts/train_adversarial.py --arch "${arch}" --seed 42 --epochs 5
+  "${PYTHON}" scripts/train_adversarial.py --arch "${arch}" --seed 42 --epochs 100
 done
 
 for arch in "${ARCHES[@]}"; do

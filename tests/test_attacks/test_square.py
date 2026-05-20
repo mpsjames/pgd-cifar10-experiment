@@ -84,6 +84,8 @@ def test_square_query_budget_respected(tiny_classifier) -> None:
 
 
 def test_square_rejects_non_linf() -> None:
+    import pytest
+
     cfg = AttackConfig(
         name="Square",
         epsilon=1.0,
@@ -97,9 +99,5 @@ def test_square_rejects_non_linf() -> None:
     )
     # Force-set the field via the underlying dict to simulate a misconfigured load.
     object.__setattr__(cfg, "norm", "L2")
-    try:
+    with pytest.raises(ValueError, match="Linf"):
         SquareAttack(cfg)
-    except ValueError as exc:
-        assert "Linf" in str(exc)
-    else:
-        raise AssertionError("SquareAttack must reject non-Linf norms")

@@ -47,6 +47,11 @@ def nb09_gray_box_summary() -> tuple[Path, Path]:
     return csv_path, fig_path
 
 
+def _mean_asr(rows: list[dict], arch: str, variant: str) -> float:
+    matches = [float(r["asr_mean"]) for r in rows if r["arch"] == arch and r["victim_variant"] == variant]
+    return float(np.mean(matches)) if matches else 0.0
+
+
 def _render_gray_box(rows: list[dict[str, object]], fig_path: Path) -> None:
     archs = sorted({str(row["arch"]) for row in rows})
     variants = ["clean", "adv"]
@@ -54,10 +59,7 @@ def _render_gray_box(rows: list[dict[str, object]], fig_path: Path) -> None:
     width = 0.35
     indices = np.arange(len(archs))
     for offset, variant in enumerate(variants):
-        means = [
-            float(np.mean([float(r["asr_mean"]) for r in rows if r["arch"] == arch and r["victim_variant"] == variant]) or 0.0)
-            for arch in archs
-        ]
+        means = [_mean_asr(rows, arch, variant) for arch in archs]
         ax.bar(indices + (offset - 0.5) * width, means, width, label=f"victim={variant}")
     ax.set_xticks(indices)
     ax.set_xticklabels(archs)

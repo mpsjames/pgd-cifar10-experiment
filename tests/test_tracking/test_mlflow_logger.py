@@ -49,12 +49,8 @@ def test_json_sink_failure_tags_mlflow(monkeypatch, tmp_path: Path) -> None:
 
 
 def test_tracker_rejects_non_http_uri(tmp_path: Path) -> None:
-    try:
+    with pytest.raises(ValueError, match="http"):
         ExperimentTracker("unit", "bad-uri", tracking_uri="file:" + "./runs")
-    except ValueError as exc:
-        assert "http" in str(exc)
-    else:
-        raise AssertionError("ExperimentTracker must reject non-HTTP MLflow URIs")
 
 
 def test_tracker_logs_run_through_http_server(mlflow_server: str, tmp_path: Path) -> None:
@@ -87,7 +83,7 @@ def test_logger_writes_experiment_log(tmp_path: Path) -> None:
     assert (tmp_path / "logs" / "experiment.log").exists()
 
 
-def test_global_log_rotates(tmp_path: Path) -> None:
+def test_global_log_appends_across_runs(tmp_path: Path) -> None:
     # Write two runs so the global log is appended to twice; confirm it stays on disk.
     for run_name in ("rotate-a", "rotate-b"):
         tracker = ExperimentTracker(

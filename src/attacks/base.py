@@ -1,6 +1,6 @@
 """Define the public adversarial-attack interface used across the project.
 
-Attacks operate on raw `[0, 1]` image tensors and rely on `NormalizedModel`
+Attacks operate on raw `[0, 1]` image tensors and rely on `Normalizer`
 to perform dataset normalization inside `forward` (plan §4.7). Subclasses are
 responsible for generating candidate perturbations; callers remain responsible
 for validating the result with `verify_perturbation` (plan §4.8).

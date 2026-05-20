@@ -47,7 +47,7 @@ def test_log_environment_contains_git_metadata(repo_root) -> None:
     assert env["git_available"] is True
 
 
-def test_amp_does_not_break_determinism_within_run() -> None:
+def test_eval_forward_pass_is_deterministic() -> None:
     set_all_seeds(42)
     model = torch.nn.Sequential(torch.nn.Flatten(), torch.nn.Linear(3 * 32 * 32, 10)).eval()
     x = torch.rand(4, 3, 32, 32)

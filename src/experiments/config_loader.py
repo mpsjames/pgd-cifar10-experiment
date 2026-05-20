@@ -90,6 +90,23 @@ def load_attack_config(name: str, config_root: Path = CONFIG_ROOT) -> AttackConf
     resolved = OmegaConf.to_container(cfg.attack, resolve=True)
     if not isinstance(resolved, dict):
         raise TypeError(f"Attack config {name} did not resolve to a mapping")
+    return _build_attack_from_dict(resolved, f"attack/{name}.yaml")
+
+
+def _build_attack_from_dict(resolved: dict, source: str) -> AttackConfig:
+    """Build a frozen `AttackConfig` from a resolved YAML mapping.
+
+    Args:
+        resolved: Mapping of attack configuration keys.
+        source: Human-readable source label used in error messages.
+
+    Returns:
+        Frozen `AttackConfig`.
+
+    Raises:
+        ValueError: When required keys are missing, unexpected keys are present,
+            or the `loss` value is not a supported literal.
+    """
     required_keys = {"name", "epsilon", "alpha", "num_steps", "random_start", "norm"}
     optional_keys = {
         "p_init",
@@ -98,14 +115,14 @@ def load_attack_config(name: str, config_root: Path = CONFIG_ROOT) -> AttackConf
         "rho",
         "n_restarts",
     }  # Attack-family-specific; ignored by other attacks.
-    _require_keys(resolved, required_keys, f"attack/{name}.yaml")
+    _require_keys(resolved, required_keys, source)
     extra = set(resolved) - (required_keys | optional_keys)
     if extra:
-        raise ValueError(f"Unexpected AttackConfig keys in attack/{name}.yaml: {sorted(extra)}")
+        raise ValueError(f"Unexpected AttackConfig keys in {source}: {sorted(extra)}")
     loss = resolved.get("loss")
     if loss is not None and loss not in {"margin", "cross_entropy"}:
         raise ValueError(
-            f"attack/{name}.yaml: 'loss' must be 'margin' or 'cross_entropy', got {loss!r}"
+            f"{source}: 'loss' must be 'margin' or 'cross_entropy', got {loss!r}"
         )
     return AttackConfig(
         name=str(resolved["name"]),
@@ -144,17 +161,7 @@ def load_training_config(name: str, config_root: Path = CONFIG_ROOT) -> Training
     inner = resolved.get("inner_attack")
     inner_attack = None
     if isinstance(inner, dict):
-        inner_attack = AttackConfig(
-            name=str(inner["name"]),
-            epsilon=float(inner["epsilon"]),
-            alpha=float(inner["alpha"]),
-            num_steps=int(inner["num_steps"]),
-            random_start=bool(inner["random_start"]),
-            norm=str(inner["norm"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["Linf"] at runtime
-            seed=int(inner["seed"]) if inner.get("seed") is not None else None,
-            rho=float(inner["rho"]) if inner.get("rho") is not None else None,
-            n_restarts=int(inner["n_restarts"]) if inner.get("n_restarts") is not None else None,
-        )
+        inner_attack = _build_attack_from_dict(inner, f"training/{name}.yaml:inner_attack")
     if str(resolved["mode"]) == "adversarial" and inner_attack is None:
         raise ValueError(f"training/{name}.yaml: adversarial mode requires inner_attack")
     milestones_raw = resolved.get("lr_milestones")

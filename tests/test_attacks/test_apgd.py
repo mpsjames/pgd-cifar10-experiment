@@ -99,14 +99,12 @@ def test_apgd_deterministic_per_seed(tiny_classifier_factory) -> None:
 
 
 def test_apgd_rejects_non_linf() -> None:
+    import pytest
+
     cfg = _apgd_config()
     object.__setattr__(cfg, "norm", "L2")
-    try:
+    with pytest.raises(ValueError, match="Linf"):
         APGDAttack(cfg)
-    except ValueError as exc:
-        assert "Linf" in str(exc)
-    else:
-        raise AssertionError("APGDAttack must reject non-Linf norms")
 
 
 def test_apgd_history_is_partitioned_by_restart(tiny_classifier) -> None:

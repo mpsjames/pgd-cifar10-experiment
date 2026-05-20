@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
-from src.attacks.factory import AttackFactory
+from src.attacks.factory import AttackFactory, replace_attack_epsilon
 from src.experiments.config_loader import load_attack_config, load_experiment_config
 from src.experiments.runner import ExperimentRunner
 from src.tracking.tracker import ExperimentTracker
@@ -35,11 +33,7 @@ def run_sweep_point(
     base,
     epsilon: float,
 ) -> None:
-    attack_config = replace(
-        base,
-        epsilon=epsilon,
-        alpha=min(base.alpha, epsilon) if epsilon > 0 else 0.0,
-    )
+    attack_config = replace_attack_epsilon(base, epsilon)
     run_name = f"epsilon_sweep_{attack_name}_{arch}_eps{epsilon:.6f}_seed{seed}"
     tags = {
         "phase": "epsilon_sweep",

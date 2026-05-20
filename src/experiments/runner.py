@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 
 from src.attacks.base import BaseAttack
 from src.attacks.verify import verify_perturbation
+from src.cli.loader import load_checkpoint_or_smoke
 from src.data.cifar10 import get_cifar10_loaders
 from src.data.smoke import make_smoke_loader
 from src.evaluation.metrics import (
@@ -22,11 +23,10 @@ from src.evaluation.metrics import (
     robust_accuracy,
     ssim,
 )
-from src.evaluation.runner import AttackEvaluator, EvaluationResult
-from src.experiments.checkpoint_paths import variant_checkpoint_path
-from src.experiments.config import ExperimentConfig, ModelConfig
+from src.evaluation.attack_evaluator import AttackEvaluator, EvaluationResult
+from src.experiments.config import ExperimentConfig
 from src.experiments.config_loader import load_experiment_config
-from src.models.builders import build_normalized_model, load_model_from_checkpoint
+from src.models.builders import build_normalized_model
 from src.tracking.protocols import TrackerProtocol
 from src.training.adversarial import AdversarialTrainer
 from src.training.base import TrainingResult
@@ -91,13 +91,13 @@ class ExperimentRunner:
         smoke: bool = False,
         no_download: bool = False,
     ) -> EvaluationResult:
-        model = self._load_checkpoint_or_smoke_model(
-            self.config.model,
-            self.config.model.arch,
-            self.config.seed,
-            variant,
-            checkpoint,
-            smoke,
+        model = load_checkpoint_or_smoke(
+            arch=self.config.model.arch,
+            seed=self.config.seed,
+            variant=variant,
+            model_config=self.config.model,
+            smoke=smoke,
+            checkpoint=checkpoint,
         ).to(self.device)
         _, loader = self._loaders(batch_size, smoke=smoke, no_download=no_download)
         result = AttackEvaluator(model, attack, loader, self.device).run()
@@ -121,15 +121,23 @@ class ExperimentRunner:
         surrogate_config = load_experiment_config(arch=surrogate_arch, attack=None).model
         victim_config = load_experiment_config(arch=victim_arch, attack=None).model
         surrogate = (
-            self._load_checkpoint_or_smoke_model(
-                surrogate_config, surrogate_arch, surrogate_seed, surrogate_variant, None, smoke
+            load_checkpoint_or_smoke(
+                arch=surrogate_arch,
+                seed=surrogate_seed,
+                variant=surrogate_variant,
+                model_config=surrogate_config,
+                smoke=smoke,
             )
             .to(self.device)
             .eval()
         )
         victim = (
-            self._load_checkpoint_or_smoke_model(
-                victim_config, victim_arch, victim_seed, victim_variant, None, smoke
+            load_checkpoint_or_smoke(
+                arch=victim_arch,
+                seed=victim_seed,
+                variant=victim_variant,
+                model_config=victim_config,
+                smoke=smoke,
             )
             .to(self.device)
             .eval()
@@ -155,7 +163,7 @@ class ExperimentRunner:
             updates["batch_size"] = batch_size
         if updates:
             training = replace(training, **updates)
-        return replace(self.config, training=training)
+        return cast(ExperimentConfig, replace(self.config, training=training))
 
     def _loaders(
         self, batch_size: int, *, smoke: bool, no_download: bool
@@ -164,23 +172,6 @@ class ExperimentRunner:
             loader = make_smoke_loader(batch_size, self.config.model.num_classes)
             return loader, loader
         return get_cifar10_loaders(batch_size, seed=self.config.seed, download=not no_download)
-
-    def _load_checkpoint_or_smoke_model(
-        self,
-        model_config: ModelConfig,
-        arch: str,
-        seed: int,
-        variant: str,
-        checkpoint: Path | None,
-        smoke: bool,
-    ):
-        path = checkpoint or variant_checkpoint_path(arch, seed, variant)
-        if path.exists():
-            return load_model_from_checkpoint(model_config, path)
-        if smoke:
-            print(f"WARNING: smoke run on random weights; checkpoint not found: {path}")
-            return build_normalized_model(model_config)
-        raise FileNotFoundError(path)
 
     def _run_transfer_evaluation(
         self,
@@ -245,6 +236,9 @@ class ExperimentRunner:
                 "robust_acc": result.robust_acc,
                 "linf_mean": result.linf_mean,
                 "l2_mean": result.l2_mean,
+                "psnr_mean": result.psnr_mean,
+                "ssim_mean": result.ssim_mean,
+                "confidence_drop_mean": result.confidence_drop_mean,
                 "time_per_image_ms": result.time_per_image_ms,
                 "n_samples": float(result.n_samples),
             }
