@@ -117,6 +117,16 @@ Supporting fragments live under:
 `load_experiment_config`, `load_attack_config`, and `load_training_config`
 resolve these YAML fragments into frozen dataclasses under `src/experiments/`.
 
+### Hardware presets
+
+Override runtime settings via `--hardware <preset>`:
+
+- `gpu_default` (default): conservative, deterministic, AMP per training config
+- `cpu`: local testing without GPU
+- `p40`: Tesla P40 cloud optimization (8 workers, persistent, cudnn benchmark, AMP off)
+
+Example: `python scripts/train_clean.py --arch resnet18 --hardware p40 --batch-size 512`
+
 ## Experiment tracking
 
 Tracking uses an MLflow HTTP server plus always-on local mirrors:

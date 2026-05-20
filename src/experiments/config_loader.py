@@ -10,6 +10,7 @@ from omegaconf import DictConfig, OmegaConf
 from src.experiments.config import (
     AttackConfig,
     ExperimentConfig,
+    HardwareConfig,
     ModelConfig,
     TrackingConfig,
     TrainingConfig,
@@ -25,6 +26,7 @@ def load_experiment_config(
     arch: str | None = None,
     attack: str | None = None,
     training: str | None = None,
+    hardware: str | None = None,
     seed: int | None = None,
     output_dir: Path | None = None,
     experiment_id: str = "pgd_cifar10",
@@ -37,6 +39,9 @@ def load_experiment_config(
             `configs/config.yaml`.
         attack: Optional attack override.
         training: Optional training override.
+        hardware: Optional hardware preset override (stem under
+            `configs/hardware/`). When `None`, use the default from
+            `configs/config.yaml` (`gpu_default`).
         seed: Optional seed override.
         output_dir: Optional output-directory override.
         experiment_id: Logical experiment identifier attached to the returned
@@ -50,12 +55,14 @@ def load_experiment_config(
     arch_name = arch or defaults["architecture"]
     attack_name = attack or defaults.get("attack")
     training_name = training or defaults.get("training")
+    hardware_name = hardware or defaults.get("hardware", "gpu_default")
     base = OmegaConf.load(config_root / "base" / f"{defaults['base']}.yaml")
     arch_cfg = OmegaConf.load(config_root / "architecture" / f"{arch_name}.yaml")
     attack_cfg = load_attack_config(attack_name, config_root) if attack_name else None
     training_cfg = load_training_config(training_name, config_root) if training_name else None
     if training_cfg is not None and arch_cfg.get("training") is not None:
         training_cfg = _override_training_batch(training_cfg, arch_cfg.training)
+    hardware_cfg = load_hardware_config(hardware_name, config_root)
 
     model_cfg = _build_model_config(arch_cfg, base)
     return ExperimentConfig(
@@ -65,7 +72,38 @@ def load_experiment_config(
         attack=attack_cfg,
         training=training_cfg,
         tracking=_load_tracking_config(base),
+        hardware=hardware_cfg,
         output_dir=Path(output_dir if output_dir is not None else root.output_dir),
+    )
+
+
+def load_hardware_config(name: str, config_root: Path = CONFIG_ROOT) -> HardwareConfig:
+    """Load one hardware YAML preset into a `HardwareConfig`.
+
+    Args:
+        name: Hardware preset stem under `configs/hardware/`.
+        config_root: Root config directory.
+
+    Returns:
+        Frozen `HardwareConfig` built from the resolved YAML mapping.
+
+    Raises:
+        TypeError: When the resolved config is not a mapping.
+    """
+    raw = OmegaConf.load(config_root / "hardware" / f"{name}.yaml")
+    resolved = OmegaConf.to_container(raw, resolve=True)
+    if not isinstance(resolved, dict):
+        raise TypeError(f"Hardware config {name} did not resolve to a mapping")
+    override = resolved.get("use_amp_override")
+    return HardwareConfig(
+        device=str(resolved.get("device", "cuda")),  # type: ignore[arg-type]  # OmegaConf loses Literal["cuda","cpu"]
+        num_workers=int(resolved.get("num_workers", 2)),
+        pin_memory=bool(resolved.get("pin_memory", True)),
+        persistent_workers=bool(resolved.get("persistent_workers", False)),
+        prefetch_factor=int(resolved.get("prefetch_factor", 2)),
+        cudnn_benchmark=bool(resolved.get("cudnn_benchmark", False)),
+        cudnn_deterministic=bool(resolved.get("cudnn_deterministic", True)),
+        use_amp_override=bool(override) if override is not None else None,
     )
 
 
@@ -187,6 +225,7 @@ def load_training_config(name: str, config_root: Path = CONFIG_ROOT) -> Training
         inner_attack=inner_attack,
         lr_milestones=lr_milestones,
         lr_gamma=float(resolved.get("lr_gamma", 0.1)),
+        val_every_n_epochs=int(resolved.get("val_every_n_epochs", 1)),
     )
 
 
@@ -266,6 +305,7 @@ def _override_training_batch(config: TrainingConfig, arch_training: Any) -> Trai
         inner_attack=config.inner_attack,
         lr_milestones=config.lr_milestones,
         lr_gamma=config.lr_gamma,
+        val_every_n_epochs=config.val_every_n_epochs,
     )
 
 

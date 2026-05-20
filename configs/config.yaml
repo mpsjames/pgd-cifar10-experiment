@@ -3,6 +3,7 @@ defaults:
   - architecture: resnet18
   - attack: pgd_10
   - training: clean
+  - hardware: gpu_default
   - _self_
 
 seed: 42

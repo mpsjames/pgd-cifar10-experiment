@@ -21,6 +21,11 @@ def build_common_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument("--tracking-uri", default=None)
     parser.add_argument("--json-dir", type=Path, default=Path("results/logs"))
     parser.add_argument("--no-mlflow", action="store_true")
+    parser.add_argument(
+        "--hardware",
+        default=None,
+        help="Hardware preset name from configs/hardware/ (default: from config.yaml)",
+    )
     return parser
 
 
@@ -47,7 +52,19 @@ def bootstrap(
     arch: str,
     attack: str | None = None,
     training: str | None = None,
+    hardware: str | None = None,
 ) -> ScriptContext:
-    set_all_seeds(args.seed)
-    config = load_experiment_config(arch=arch, attack=attack, training=training, seed=args.seed)
+    hardware_name = hardware if hardware is not None else getattr(args, "hardware", None)
+    config = load_experiment_config(
+        arch=arch,
+        attack=attack,
+        training=training,
+        hardware=hardware_name,
+        seed=args.seed,
+    )
+    set_all_seeds(
+        args.seed,
+        deterministic=config.hardware.cudnn_deterministic,
+        benchmark=config.hardware.cudnn_benchmark,
+    )
     return ScriptContext(args=args, config=config)

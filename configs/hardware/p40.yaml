@@ -1,0 +1,19 @@
+# Tesla P40 24GB (Pascal, compute 6.1, no Tensor Cores) + 12 vCPU + 48GB RAM
+# Optimized for cost: maximize throughput on hourly cloud rental.
+#
+# Recommended batch sizes (override via --batch-size or per-arch YAML):
+#   - resnet18 clean: 512 (LR scale: lr * 4 ~ 0.4)
+#   - resnet18 adversarial APGD-10: 256
+#   - wrn_34_10 clean: 256
+#   - wrn_34_10 adversarial APGD-10: 128
+#   - vit_tiny clean: 256
+#   - vit_tiny adversarial APGD-10: 128
+
+device: cuda
+num_workers: 8           # 12 vCPU available; leave headroom for main process
+pin_memory: true
+persistent_workers: true # avoid worker respawn each epoch (~1-2s saved/epoch)
+prefetch_factor: 4       # higher pipeline depth
+cudnn_benchmark: true    # autotuner finds fastest conv kernels (~10-20% gain)
+cudnn_deterministic: false # single-seed workflow tolerates this trade-off
+use_amp_override: false  # CRITICAL: P40 has no Tensor Cores, AMP slower than FP32

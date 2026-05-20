@@ -24,6 +24,9 @@ def get_cifar10_loaders(
     seed: int | None = None,
     root: str = "data/cifar10",
     download: bool = True,
+    pin_memory: bool | None = None,
+    persistent_workers: bool = False,
+    prefetch_factor: int = 2,
 ) -> tuple[DataLoader, DataLoader]:
     """Return CIFAR-10 train/test loaders with raw `[0, 1]` image tensors.
 
@@ -39,6 +42,12 @@ def get_cifar10_loaders(
         root: Dataset cache directory.
         download: When True, allow torchvision to download CIFAR-10 into
             `root` if it is missing.
+        pin_memory: Override page-locked transfer. When `None`, fall back to
+            `torch.cuda.is_available()` (legacy behavior).
+        persistent_workers: When True and `num_workers > 0`, keep worker
+            processes alive between epochs.
+        prefetch_factor: Batches each worker pre-fetches. Only forwarded when
+            `num_workers > 0` (PyTorch rejects it otherwise).
 
     Returns:
         `(train_loader, test_loader)` where both yield `(x, y)` batches with
@@ -65,6 +74,13 @@ def get_cifar10_loaders(
     test_set = datasets.CIFAR10(root=root, train=False, transform=test_transform, download=download)
 
     generator = get_generator(seed) if seed is not None else None
+    pin = torch.cuda.is_available() if pin_memory is None else pin_memory
+    # PyTorch rejects persistent_workers/prefetch_factor when num_workers == 0.
+    effective_persistent = persistent_workers and num_workers > 0
+    loader_kwargs: dict[str, object] = {}
+    if num_workers > 0:
+        loader_kwargs["prefetch_factor"] = prefetch_factor
+
     return (
         DataLoader(
             train_set,
@@ -73,13 +89,17 @@ def get_cifar10_loaders(
             num_workers=num_workers,
             worker_init_fn=_seed_worker if seed is not None else None,
             generator=generator,
-            pin_memory=torch.cuda.is_available(),
+            pin_memory=pin,
+            persistent_workers=effective_persistent,
+            **loader_kwargs,
         ),
         DataLoader(
             test_set,
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
-            pin_memory=torch.cuda.is_available(),
+            pin_memory=pin,
+            persistent_workers=effective_persistent,
+            **loader_kwargs,
         ),
     )

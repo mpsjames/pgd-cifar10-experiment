@@ -1,0 +1,8 @@
+device: cuda
+num_workers: 2
+pin_memory: true
+persistent_workers: false
+prefetch_factor: 2
+cudnn_benchmark: false
+cudnn_deterministic: true
+use_amp_override: null  # honor TrainingConfig.use_amp

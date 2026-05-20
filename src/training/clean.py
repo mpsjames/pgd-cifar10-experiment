@@ -27,13 +27,17 @@ class CleanTrainer(BaseTrainer):
         best_metric = 0.0
         start = time.perf_counter()
 
-        for epoch in range(self.training_config.epochs):
+        total_epochs = self.training_config.epochs
+        val_every = max(1, self.training_config.val_every_n_epochs)
+        for epoch in range(total_epochs):
             metrics = self._train_epoch(optimizer, scaler)
             scheduler.step()
-            val_acc = self._val_epoch()
-            metrics["val_acc"] = val_acc
+            do_val = (epoch + 1) % val_every == 0 or epoch == total_epochs - 1
+            if do_val:
+                val_acc = self._val_epoch()
+                metrics["val_acc"] = val_acc
+                best_metric = max(best_metric, val_acc)
             history.append(metrics)
-            best_metric = max(best_metric, val_acc)
             self.tracker.log_metrics(metrics, step=epoch)
 
         final_path = clean_checkpoint_path(self.arch, self.seed)

@@ -70,6 +70,33 @@ class TrackingConfig:
 
 
 @dataclass(frozen=True)
+class HardwareConfig:
+    """Runtime execution settings (separate from algorithmic TrainingConfig).
+
+    Fields:
+        device: Compute device, "cuda" or "cpu".
+        num_workers: DataLoader worker processes.
+        pin_memory: Use page-locked memory for faster host->GPU copy.
+        persistent_workers: Keep workers alive across epochs.
+        prefetch_factor: Batches each worker pre-fetches; PyTorch default is 2.
+        cudnn_benchmark: Enable autotuner for fastest conv kernels.
+        cudnn_deterministic: Require deterministic algorithms.
+        use_amp_override: When not None, force AMP on/off regardless of
+            TrainingConfig.use_amp. Use False on Pascal GPUs (P40, P100) that
+            lack Tensor Cores.
+    """
+
+    device: Literal["cuda", "cpu"] = "cuda"
+    num_workers: int = 2
+    pin_memory: bool = True
+    persistent_workers: bool = False
+    prefetch_factor: int = 2
+    cudnn_benchmark: bool = False
+    cudnn_deterministic: bool = True
+    use_amp_override: bool | None = None
+
+
+@dataclass(frozen=True)
 class ViTConfig:
     """ViT-Tiny architecture hyperparameters (meaningless for CNN variants).
 
@@ -148,6 +175,8 @@ class TrainingConfig:
             training.
         lr_milestones: Required when `scheduler == "multistep"`.
         lr_gamma: Multiplicative factor used by the multistep scheduler.
+        val_every_n_epochs: Run validation every N epochs (and always on the
+            final epoch). Default 1 = validate every epoch.
     """
 
     mode: Literal["clean", "adversarial"]
@@ -163,6 +192,7 @@ class TrainingConfig:
     inner_attack: AttackConfig | None = None
     lr_milestones: tuple[int, ...] | None = None
     lr_gamma: float = 0.1
+    val_every_n_epochs: int = 1
 
 
 @dataclass(frozen=True)
@@ -176,6 +206,8 @@ class ExperimentConfig:
         attack: Optional attack settings for evaluation-style entry points.
         training: Optional training settings for training entry points.
         tracking: Experiment tracking settings.
+        hardware: Runtime hardware preset (workers, pin_memory, cudnn flags,
+            AMP override) selected via `configs/hardware/<name>.yaml`.
         output_dir: Root output directory declared by the composed config.
     """
 
@@ -185,4 +217,5 @@ class ExperimentConfig:
     attack: AttackConfig | None
     training: TrainingConfig | None
     tracking: TrackingConfig
+    hardware: HardwareConfig
     output_dir: Path

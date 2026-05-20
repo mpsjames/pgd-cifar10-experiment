@@ -161,6 +161,8 @@ class ExperimentRunner:
             updates["epochs"] = epochs
         if batch_size is not None:
             updates["batch_size"] = batch_size
+        if self.config.hardware.use_amp_override is not None:
+            updates["use_amp"] = self.config.hardware.use_amp_override
         if updates:
             training = replace(training, **updates)
         return cast(ExperimentConfig, replace(self.config, training=training))
@@ -171,7 +173,16 @@ class ExperimentRunner:
         if smoke:
             loader = make_smoke_loader(batch_size, self.config.model.num_classes)
             return loader, loader
-        return get_cifar10_loaders(batch_size, seed=self.config.seed, download=not no_download)
+        hw = self.config.hardware
+        return get_cifar10_loaders(
+            batch_size,
+            num_workers=hw.num_workers,
+            seed=self.config.seed,
+            download=not no_download,
+            pin_memory=hw.pin_memory,
+            persistent_workers=hw.persistent_workers,
+            prefetch_factor=hw.prefetch_factor,
+        )
 
     def _run_transfer_evaluation(
         self,
