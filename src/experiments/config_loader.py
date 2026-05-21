@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,6 @@ from src.experiments.config import (
     TrackingConfig,
     TrainingConfig,
     ViTConfig,
-    WRNConfig,
 )
 
 CONFIG_ROOT = Path(__file__).resolve().parents[2] / "configs"
@@ -61,13 +61,14 @@ def load_experiment_config(
     attack_cfg = load_attack_config(attack_name, config_root) if attack_name else None
     training_cfg = load_training_config(training_name, config_root) if training_name else None
     if training_cfg is not None and arch_cfg.get("training") is not None:
-        training_cfg = _override_training_batch(training_cfg, arch_cfg.training)
+        training_cfg = _override_training_from_arch(training_cfg, arch_cfg.training)
     hardware_cfg = load_hardware_config(hardware_name, config_root)
 
+    run_seed = _validate_seed(int(seed if seed is not None else root.seed))
     model_cfg = _build_model_config(arch_cfg, base)
     return ExperimentConfig(
         experiment_id=experiment_id,
-        seed=int(seed if seed is not None else root.seed),
+        seed=run_seed,
         model=model_cfg,
         attack=attack_cfg,
         training=training_cfg,
@@ -95,8 +96,11 @@ def load_hardware_config(name: str, config_root: Path = CONFIG_ROOT) -> Hardware
     if not isinstance(resolved, dict):
         raise TypeError(f"Hardware config {name} did not resolve to a mapping")
     override = resolved.get("use_amp_override")
+    device = str(resolved.get("device", "cuda"))
+    if device not in {"cuda", "cpu"}:
+        raise ValueError(f"hardware/{name}.yaml: device must be 'cuda' or 'cpu', got {device!r}")
     return HardwareConfig(
-        device=str(resolved.get("device", "cuda")),  # type: ignore[arg-type]  # OmegaConf loses Literal["cuda","cpu"]
+        device=device,  # type: ignore[arg-type]  # OmegaConf loses Literal["cuda","cpu"]
         num_workers=int(resolved.get("num_workers", 2)),
         pin_memory=bool(resolved.get("pin_memory", True)),
         persistent_workers=bool(resolved.get("persistent_workers", False)),
@@ -160,19 +164,60 @@ def _build_attack_from_dict(resolved: dict, source: str) -> AttackConfig:
     loss = resolved.get("loss")
     if loss is not None and loss not in {"margin", "cross_entropy"}:
         raise ValueError(f"{source}: 'loss' must be 'margin' or 'cross_entropy', got {loss!r}")
+    epsilon = float(resolved["epsilon"])
+    alpha = float(resolved["alpha"])
+    num_steps = int(resolved["num_steps"])
+    if epsilon < 0:
+        raise ValueError(f"{source}: 'epsilon' must be >= 0, got {epsilon}")
+    if alpha < 0:
+        raise ValueError(f"{source}: 'alpha' must be >= 0, got {alpha}")
+    if num_steps < 0:
+        raise ValueError(f"{source}: 'num_steps' must be >= 0, got {num_steps}")
+    p_init_val = float(resolved["p_init"]) if resolved.get("p_init") is not None else None
+    if p_init_val is not None and not (0.0 < p_init_val <= 1.0):
+        raise ValueError(f"{source}: 'p_init' must be in (0, 1], got {p_init_val}")
     return AttackConfig(
         name=str(resolved["name"]),
-        epsilon=float(resolved["epsilon"]),
-        alpha=float(resolved["alpha"]),
-        num_steps=int(resolved["num_steps"]),
+        epsilon=epsilon,
+        alpha=alpha,
+        num_steps=num_steps,
         random_start=bool(resolved["random_start"]),
         norm=str(resolved["norm"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["Linf"] at runtime
-        p_init=float(resolved["p_init"]) if resolved.get("p_init") is not None else None,
+        p_init=p_init_val,
         loss=loss,  # type: ignore[arg-type]  # mypy can't narrow str to Literal["margin","cross_entropy"]
         seed=int(resolved["seed"]) if resolved.get("seed") is not None else None,
         rho=float(resolved["rho"]) if resolved.get("rho") is not None else None,
         n_restarts=int(resolved["n_restarts"]) if resolved.get("n_restarts") is not None else None,
     )
+
+
+_TRAINING_CONFIG_KEYS: frozenset[str] = frozenset(
+    {
+        "mode",
+        "epochs",
+        "batch_size",
+        "lr",
+        "weight_decay",
+        "optimizer",
+        "scheduler",
+        "momentum",
+        "betas",
+        "use_amp",
+        "grad_clip",
+        "inner_attack",
+        "lr_milestones",
+        "lr_gamma",
+        "warmup_epochs",
+        "min_lr",
+        "label_smoothing",
+        "mixup_alpha",
+        "cutmix_alpha",
+        "mixup_switch_prob",
+        "val_every_n_epochs",
+        "early_stopping_patience",
+        "early_stopping_min_delta",
+    }
+)
 
 
 def load_training_config(name: str, config_root: Path = CONFIG_ROOT) -> TrainingConfig:
@@ -189,11 +234,15 @@ def load_training_config(name: str, config_root: Path = CONFIG_ROOT) -> Training
     Raises:
         TypeError: When the YAML does not resolve to a mapping or when
             `lr_milestones` has the wrong type.
+        ValueError: When the YAML contains keys not in the allowed schema.
     """
     raw = OmegaConf.load(config_root / "training" / f"{name}.yaml")
     resolved = OmegaConf.to_container(raw, resolve=True)
     if not isinstance(resolved, dict):
         raise TypeError(f"Training config {name} did not resolve to a mapping")
+    extra = set(resolved) - _TRAINING_CONFIG_KEYS
+    if extra:
+        raise ValueError(f"Unexpected TrainingConfig keys in training/{name}.yaml: {sorted(extra)}")
     inner = resolved.get("inner_attack")
     inner_attack = None
     if isinstance(inner, dict):
@@ -211,21 +260,58 @@ def load_training_config(name: str, config_root: Path = CONFIG_ROOT) -> Training
             f"lr_milestones must be a list in training/{name}.yaml, "
             f"got {type(milestones_raw).__name__}"
         )
+    betas_raw = resolved.get("betas")
+    betas: tuple[float, float] = (0.9, 0.999)
+    if betas_raw is not None:
+        if not isinstance(betas_raw, (list, tuple)) or len(betas_raw) != 2:
+            raise TypeError(
+                f"betas must be a 2-element list in training/{name}.yaml, got {betas_raw!r}"
+            )
+        betas = (float(betas_raw[0]), float(betas_raw[1]))
+    grad_clip_raw = resolved.get("grad_clip")
+    _epochs = int(resolved["epochs"])
+    _batch_size = int(resolved["batch_size"])
+    _lr = float(resolved["lr"])
+    _val_every = int(resolved.get("val_every_n_epochs", 1))
+    _switch_prob = float(resolved.get("mixup_switch_prob", 0.5))
+    if _epochs <= 0:
+        raise ValueError(f"training/{name}.yaml: 'epochs' must be > 0, got {_epochs}")
+    if _batch_size <= 0:
+        raise ValueError(f"training/{name}.yaml: 'batch_size' must be > 0, got {_batch_size}")
+    if _lr <= 0:
+        raise ValueError(f"training/{name}.yaml: 'lr' must be > 0, got {_lr}")
+    if _val_every <= 0:
+        raise ValueError(
+            f"training/{name}.yaml: 'val_every_n_epochs' must be > 0, got {_val_every}"
+        )
+    if not (0.0 <= _switch_prob <= 1.0):
+        raise ValueError(
+            f"training/{name}.yaml: 'mixup_switch_prob' must be in [0, 1], got {_switch_prob}"
+        )
     return TrainingConfig(
         mode=str(resolved["mode"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["clean","adversarial"]
-        epochs=int(resolved["epochs"]),
-        batch_size=int(resolved["batch_size"]),
-        lr=float(resolved["lr"]),
+        epochs=_epochs,
+        batch_size=_batch_size,
+        lr=_lr,
         weight_decay=float(resolved["weight_decay"]),
-        optimizer=str(resolved["optimizer"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["SGD"]
+        optimizer=str(resolved["optimizer"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["SGD","AdamW"]
         scheduler=str(resolved["scheduler"]),  # type: ignore[arg-type]  # OmegaConf loses Literal["cosine","multistep"]
         momentum=float(resolved.get("momentum", 0.9)),
+        betas=betas,
         use_amp=bool(resolved.get("use_amp", True)),
-        grad_clip=resolved.get("grad_clip"),  # type: ignore[arg-type]  # dict[str,Any] lookup loses float|None
+        grad_clip=float(grad_clip_raw) if grad_clip_raw is not None else None,
         inner_attack=inner_attack,
         lr_milestones=lr_milestones,
         lr_gamma=float(resolved.get("lr_gamma", 0.1)),
-        val_every_n_epochs=int(resolved.get("val_every_n_epochs", 1)),
+        warmup_epochs=int(resolved.get("warmup_epochs", 0)),
+        min_lr=float(resolved.get("min_lr", 0.0)),
+        label_smoothing=float(resolved.get("label_smoothing", 0.0)),
+        mixup_alpha=float(resolved.get("mixup_alpha", 0.0)),
+        cutmix_alpha=float(resolved.get("cutmix_alpha", 0.0)),
+        mixup_switch_prob=_switch_prob,
+        val_every_n_epochs=_val_every,
+        early_stopping_patience=int(resolved.get("early_stopping_patience", 0)),
+        early_stopping_min_delta=float(resolved.get("early_stopping_min_delta", 0.0)),
     )
 
 
@@ -233,16 +319,13 @@ def _build_model_config(arch_cfg: Any, base: Any) -> ModelConfig:
     """Build a frozen `ModelConfig` from an architecture YAML and the base YAML.
 
     Reads architecture-specific hyperparameters from the optional `model:` block
-    (ViT for `vit_tiny`, WRN for `wrn_34_10`); ResNet-18 has no extra fields.
+    (ViT for `vit_tiny`); ResNet-18 has no extra fields.
     """
     arch = str(arch_cfg.arch)
     model_overrides = arch_cfg.get("model") or {}
     vit_cfg: ViTConfig | None = None
-    wrn_cfg: WRNConfig | None = None
     if arch == "vit_tiny":
         vit_cfg = _build_vit_config(model_overrides)
-    elif arch == "wrn_34_10":
-        wrn_cfg = _build_wrn_config(model_overrides)
     return ModelConfig(
         arch=arch,  # type: ignore[arg-type]  # OmegaConf loses Literal type info at runtime
         checkpoint_path=None,
@@ -250,13 +333,13 @@ def _build_model_config(arch_cfg: Any, base: Any) -> ModelConfig:
         cifar_mean=tuple(float(v) for v in base.dataset.mean),  # type: ignore[arg-type]  # generator loses tuple Literal
         cifar_std=tuple(float(v) for v in base.dataset.std),  # type: ignore[arg-type]  # generator loses tuple Literal
         vit=vit_cfg,
-        wrn=wrn_cfg,
     )
 
 
 def _build_vit_config(model_overrides: Any) -> ViTConfig:
     dropout = _optional_float(model_overrides, "dropout")
     attn_dropout = _optional_float(model_overrides, "attn_dropout")
+    drop_path = _optional_float(model_overrides, "drop_path")
     return ViTConfig(
         image_size=_optional_int(model_overrides, "image_size") or 32,
         patch_size=_optional_int(model_overrides, "patch_size") or 4,
@@ -266,15 +349,7 @@ def _build_vit_config(model_overrides: Any) -> ViTConfig:
         mlp_ratio=_optional_float(model_overrides, "mlp_ratio") or 4.0,
         dropout=dropout if dropout is not None else 0.1,
         attn_dropout=attn_dropout if attn_dropout is not None else 0.0,
-    )
-
-
-def _build_wrn_config(model_overrides: Any) -> WRNConfig:
-    dropout = _optional_float(model_overrides, "dropout")
-    return WRNConfig(
-        depth=_optional_int(model_overrides, "depth") or 34,
-        widen_factor=_optional_int(model_overrides, "widen_factor") or 10,
-        dropout=dropout if dropout is not None else 0.0,
+        drop_path=drop_path if drop_path is not None else 0.0,
     )
 
 
@@ -288,25 +363,54 @@ def _defaults(root: DictConfig) -> dict[str, str]:
     return values
 
 
-def _override_training_batch(config: TrainingConfig, arch_training: Any) -> TrainingConfig:
-    batch_size = int(arch_training.get("batch_size", config.batch_size))
-    use_amp = bool(arch_training.get("use_amp", config.use_amp))
-    return TrainingConfig(
-        mode=config.mode,
-        epochs=config.epochs,
-        batch_size=batch_size,
-        lr=config.lr,
-        weight_decay=config.weight_decay,
-        optimizer=config.optimizer,
-        scheduler=config.scheduler,
-        momentum=config.momentum,
-        use_amp=use_amp,
-        grad_clip=config.grad_clip,
-        inner_attack=config.inner_attack,
-        lr_milestones=config.lr_milestones,
-        lr_gamma=config.lr_gamma,
-        val_every_n_epochs=config.val_every_n_epochs,
-    )
+_ARCH_TRAINING_OVERRIDABLE: dict[str, type] = {
+    "batch_size": int,
+    "use_amp": bool,
+    "lr": float,
+    "weight_decay": float,
+    "optimizer": str,
+    "scheduler": str,
+    "momentum": float,
+    "grad_clip": float,
+    "warmup_epochs": int,
+    "min_lr": float,
+    "label_smoothing": float,
+    "mixup_alpha": float,
+    "cutmix_alpha": float,
+    "mixup_switch_prob": float,
+    "early_stopping_patience": int,
+    "early_stopping_min_delta": float,
+}
+
+
+def _override_training_from_arch(config: TrainingConfig, arch_training: Any) -> TrainingConfig:
+    """Layer arch-YAML `training:` block over a base `TrainingConfig`.
+
+    Recognized scalar keys are merged via `dataclasses.replace`. `betas` is
+    handled separately because it is a 2-tuple. Unknown keys raise so config
+    typos surface immediately instead of being silently ignored.
+    """
+    updates: dict[str, Any] = {}
+    for key in arch_training:
+        key_str = str(key)
+        if key_str == "betas":
+            betas_raw = arch_training[key]
+            try:
+                betas_list = list(betas_raw)
+            except TypeError as exc:
+                raise TypeError(
+                    f"betas override must be a 2-element list, got {betas_raw!r}"
+                ) from exc
+            if len(betas_list) != 2:
+                raise TypeError(f"betas override must be a 2-element list, got {betas_raw!r}")
+            updates["betas"] = (float(betas_list[0]), float(betas_list[1]))
+            continue
+        if key_str not in _ARCH_TRAINING_OVERRIDABLE:
+            raise ValueError(f"Unknown arch training override key: {key_str!r}")
+        caster = _ARCH_TRAINING_OVERRIDABLE[key_str]
+        updates[key_str] = caster(arch_training[key])
+    merged: TrainingConfig = replace(config, **updates)  # type: ignore[assignment]
+    return merged
 
 
 def _load_tracking_config(base: DictConfig) -> TrackingConfig:
@@ -351,6 +455,12 @@ def _optional_int(data: Any, key: str) -> int | None:
 def _optional_float(data: Any, key: str) -> float | None:
     value = data.get(key) if hasattr(data, "get") else None
     return float(value) if value is not None else None
+
+
+def _validate_seed(seed: int) -> int:
+    if seed <= 0:
+        raise ValueError(f"seed must be a positive non-zero integer, got {seed}")
+    return seed
 
 
 def _require_keys(data: dict[str, object], keys: set[str], source: str) -> None:

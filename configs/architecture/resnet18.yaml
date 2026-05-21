@@ -1,5 +1,5 @@
 arch: resnet18
 training:
-  batch_size: 128
+  batch_size: 256
   use_amp: true
 

@@ -4,8 +4,6 @@
 # Recommended batch sizes (override via --batch-size or per-arch YAML):
 #   - resnet18 clean: 512 (LR scale: lr * 4 ~ 0.4)
 #   - resnet18 adversarial APGD-10: 256
-#   - wrn_34_10 clean: 256
-#   - wrn_34_10 adversarial APGD-10: 128
 #   - vit_tiny clean: 256
 #   - vit_tiny adversarial APGD-10: 128
 

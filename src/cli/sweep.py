@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from src.attacks.factory import AttackFactory, replace_attack_epsilon
-from src.experiments.config_loader import load_attack_config, load_experiment_config
+from src.experiments.config_loader import (
+    load_attack_config,
+    load_experiment_config,
+    load_hardware_config,
+)
 from src.experiments.runner import ExperimentRunner
 from src.tracking.tracker import ExperimentTracker
 from src.utils.seed import set_all_seeds
@@ -17,9 +23,16 @@ def run_sweep(
     attack_name: str,
 ) -> None:
     base_attack = load_attack_config(attack_name)
-    set_all_seeds(seed)
+    hardware_name = getattr(args, "hardware", None)
+    hw_cfg = load_hardware_config(hardware_name or "gpu_default")
+    set_all_seeds(seed, deterministic=hw_cfg.cudnn_deterministic, benchmark=hw_cfg.cudnn_benchmark)
     for arch in arches:
-        exp_config = load_experiment_config(arch=arch, attack=attack_name, seed=seed)
+        exp_config = load_experiment_config(
+            arch=arch,
+            attack=attack_name,
+            seed=seed,
+            hardware=hardware_name,
+        )
         for epsilon in epsilons:
             run_sweep_point(args, exp_config, arch, seed, attack_name, base_attack, epsilon)
 
@@ -34,6 +47,7 @@ def run_sweep_point(
     epsilon: float,
 ) -> None:
     attack_config = replace_attack_epsilon(base, epsilon)
+    exp_config = replace(exp_config, attack=attack_config)
     run_name = f"epsilon_sweep_{attack_name}_{arch}_eps{epsilon:.6f}_seed{seed}"
     tags = {
         "phase": "epsilon_sweep",

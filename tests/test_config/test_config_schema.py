@@ -42,7 +42,7 @@ def test_cross_arch_config_compositions_load(repo_root) -> None:
     cases = [
         ("resnet18", "pgd_10", "clean"),
         ("vit_tiny", "pgd_10", "apgd_at"),
-        ("wrn_34_10", "apgd_ce_10", "apgd_at"),
+        ("resnet18", "apgd_ce_10", "apgd_at"),
     ]
     for arch, attack, training in cases:
         config = load_experiment_config(

@@ -10,8 +10,6 @@ attack_default:
   alpha: 0.00784313725490196
   norm: Linf
 
-hardware: {device: cuda, vram_gb: 4}
-
 mlflow:
   enable: true
   tracking_uri: http://127.0.0.1:5000

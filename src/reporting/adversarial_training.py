@@ -25,8 +25,6 @@ def nb07_adversarial_training(arch: str) -> Path:
         )
         clean_gate, robust_gate = AT_GATES[arch]
         disclosure = "single-seed APGD AT (plan section 6)"
-        if arch == "wrn_34_10":
-            disclosure += "; check MLflow tag wrn_at_source=robustbench for fallback status"
         rows.append(
             {
                 "arch": arch,
@@ -41,10 +39,6 @@ def nb07_adversarial_training(arch: str) -> Path:
         )
     else:
         disclosure = "single-seed APGD AT; full training pending"
-        if arch == "wrn_34_10":
-            disclosure = (
-                "single-seed APGD AT; RobustBench fallback documented if fallback_triggered=true"
-            )
         rows.append(
             {
                 "arch": arch,

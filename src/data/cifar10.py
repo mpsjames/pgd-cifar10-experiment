@@ -14,7 +14,7 @@ from src.utils.seed import get_generator
 
 def _seed_worker(worker_id: int) -> None:
     worker_seed = torch.initial_seed() % 2**32
-    np.random.seed(worker_seed + worker_id)
+    np.random.seed((worker_seed + worker_id) % 2**32)
 
 
 def get_cifar10_loaders(

@@ -8,12 +8,24 @@ from pathlib import Path
 
 import torch
 from torch import nn
-from torch.optim import SGD
-from torch.optim.lr_scheduler import CosineAnnealingLR, MultiStepLR
+from torch.optim import SGD, AdamW
+from torch.optim.lr_scheduler import (
+    CosineAnnealingLR,
+    LinearLR,
+    LRScheduler,
+    MultiStepLR,
+    SequentialLR,
+)
 from torch.utils.data import DataLoader
 
 from src.experiments.config import ExperimentConfig, TrainingConfig
+from src.experiments.device import resolve_configured_device
 from src.tracking.protocols import TrackerProtocol
+
+# Parameter names matched as "no weight decay" for AdamW. Biases, all
+# normalization layers, and ViT-specific learned tokens follow the standard
+# transformer recipe of skipping weight decay.
+_NO_DECAY_KEYWORDS: tuple[str, ...] = ("bias", "norm", "pos_embed", "cls_token")
 
 
 @dataclass
@@ -48,7 +60,7 @@ class BaseTrainer(ABC):
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.tracker = tracker
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or resolve_configured_device(config)
         self.arch = config.model.arch
         self.seed = config.seed
 
@@ -58,25 +70,71 @@ class BaseTrainer(ABC):
 
     def _build_optimizer(self) -> torch.optim.Optimizer:
         config = self.training_config
-        if config.optimizer != "SGD":
-            raise ValueError(f"Unsupported optimizer: {config.optimizer}")
-        return SGD(
-            self.model.parameters(),
-            lr=config.lr,
-            momentum=config.momentum,
-            weight_decay=config.weight_decay,
+        if config.optimizer == "SGD":
+            return SGD(
+                self.model.parameters(),
+                lr=config.lr,
+                momentum=config.momentum,
+                weight_decay=config.weight_decay,
+            )
+        if config.optimizer == "AdamW":
+            decay, no_decay = self._split_decay_params()
+            param_groups: list[dict] = [
+                {"params": decay, "weight_decay": config.weight_decay},
+                {"params": no_decay, "weight_decay": 0.0},
+            ]
+            return AdamW(
+                param_groups,
+                lr=config.lr,
+                betas=config.betas,
+                weight_decay=config.weight_decay,
+            )
+        raise ValueError(f"Unsupported optimizer: {config.optimizer}")
+
+    def _split_decay_params(self) -> tuple[list[nn.Parameter], list[nn.Parameter]]:
+        decay: list[nn.Parameter] = []
+        no_decay: list[nn.Parameter] = []
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if param.ndim <= 1 or any(k in name for k in _NO_DECAY_KEYWORDS):
+                no_decay.append(param)
+            else:
+                decay.append(param)
+        return decay, no_decay
+
+    def _build_scheduler(self, optimizer: torch.optim.Optimizer) -> LRScheduler:
+        config = self.training_config
+        main = self._build_main_scheduler(optimizer)
+        if config.warmup_epochs <= 0:
+            return main
+        warmup = LinearLR(
+            optimizer,
+            start_factor=1e-3,
+            end_factor=1.0,
+            total_iters=config.warmup_epochs,
+        )
+        return SequentialLR(
+            optimizer,
+            schedulers=[warmup, main],
+            milestones=[config.warmup_epochs],
         )
 
-    def _build_scheduler(self, optimizer: torch.optim.Optimizer):
+    def _build_main_scheduler(self, optimizer: torch.optim.Optimizer) -> LRScheduler:
         config = self.training_config
         if config.scheduler == "cosine":
-            return CosineAnnealingLR(optimizer, T_max=config.epochs)
+            t_max = max(1, config.epochs - config.warmup_epochs)
+            return CosineAnnealingLR(optimizer, T_max=t_max, eta_min=config.min_lr)
         if config.scheduler == "multistep":
             if config.lr_milestones is None:
                 raise ValueError("multistep scheduler requires config.lr_milestones to be set")
-            return MultiStepLR(
-                optimizer, milestones=list(config.lr_milestones), gamma=config.lr_gamma
-            )
+            if config.warmup_epochs > 0 and min(config.lr_milestones) <= config.warmup_epochs:
+                raise ValueError(
+                    f"All lr_milestones {config.lr_milestones} must be greater than "
+                    f"warmup_epochs={config.warmup_epochs}"
+                )
+            milestones = [m - config.warmup_epochs for m in config.lr_milestones]
+            return MultiStepLR(optimizer, milestones=milestones, gamma=config.lr_gamma)
         raise ValueError(f"Unsupported scheduler: {config.scheduler}")
 
     @staticmethod

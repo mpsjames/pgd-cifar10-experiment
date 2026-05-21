@@ -3,16 +3,17 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
 from omegaconf import OmegaConf
 
+from src.cli.runner import build_common_parser
 from src.cli.sweep import run_sweep
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run PGD epsilon sweep")
+    parser = build_common_parser("Run PGD epsilon sweep")
+    parser.set_defaults(batch_size=64, seed=None)
     parser.add_argument(
         "--sweep-config",
         type=Path,
@@ -20,15 +21,8 @@ def main() -> None:
     )
     parser.add_argument("--arch", action="append", default=None)
     parser.add_argument("--attack", default=None)
-    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--epsilon", type=float, action="append", default=None)
     parser.add_argument("--variant", choices=["clean", "adv"], default="clean")
-    parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--smoke", action="store_true")
-    parser.add_argument("--no-download", action="store_true")
-    parser.add_argument("--tracking-uri", default=None)
-    parser.add_argument("--json-dir", type=Path, default=Path("results/logs"))
-    parser.add_argument("--no-mlflow", action="store_true")
     args = parser.parse_args()
 
     sweep = OmegaConf.load(args.sweep_config)

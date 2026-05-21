@@ -74,13 +74,20 @@ class ExperimentTracker:
         self.logger.info("run_started mlflow_enabled=%s", self.enable)
         if self.enable:
             mlflow = _mlflow()
-            mlflow.tracking.MlflowClient(tracking_uri=self.tracking_uri).search_experiments(
-                max_results=1
-            )
-            mlflow.set_tracking_uri(self.tracking_uri)
-            mlflow.set_experiment(self.experiment_name)
-            active = mlflow.start_run(run_name=self.run_name, tags=self.tags)
-            self.run_id = active.info.run_id
+            try:
+                mlflow.tracking.MlflowClient(tracking_uri=self.tracking_uri).search_experiments(
+                    max_results=1
+                )
+            except Exception:
+                self.logger.warning("mlflow_unreachable_falling_back_to_json_only")
+                self.enable = False
+            if self.enable:
+                mlflow.set_tracking_uri(self.tracking_uri)
+                mlflow.set_experiment(self.experiment_name)
+                active = mlflow.start_run(run_name=self.run_name, tags=self.tags)
+                self.run_id = active.info.run_id
+            else:
+                self.run_id = None
         else:
             self.run_id = None
         if config is not None:

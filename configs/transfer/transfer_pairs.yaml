@@ -1,8 +1,4 @@
 pairs:
-  - {surrogate: resnet18, victim: wrn_34_10}
   - {surrogate: resnet18, victim: vit_tiny}
-  - {surrogate: wrn_34_10, victim: resnet18}
-  - {surrogate: wrn_34_10, victim: vit_tiny}
   - {surrogate: vit_tiny, victim: resnet18}
-  - {surrogate: vit_tiny, victim: wrn_34_10}
 attack: pgd_10

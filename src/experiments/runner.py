@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -11,21 +10,13 @@ import torch
 from torch.utils.data import DataLoader
 
 from src.attacks.base import BaseAttack
-from src.attacks.verify import verify_perturbation
 from src.cli.loader import load_checkpoint_or_smoke
 from src.data.cifar10 import get_cifar10_loaders
 from src.data.smoke import make_smoke_loader
 from src.evaluation.attack_evaluator import AttackEvaluator, EvaluationResult
-from src.evaluation.metrics import (
-    attack_success_rate,
-    l2_norm,
-    linf_norm,
-    psnr,
-    robust_accuracy,
-    ssim,
-)
 from src.experiments.config import ExperimentConfig
 from src.experiments.config_loader import load_experiment_config
+from src.experiments.device import resolve_configured_device
 from src.models.builders import build_normalized_model
 from src.tracking.protocols import TrackerProtocol
 from src.training.adversarial import AdversarialTrainer
@@ -45,7 +36,7 @@ class ExperimentRunner:
     ) -> None:
         self.config = config
         self.tracker = tracker
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or resolve_configured_device(config)
 
     def train_clean(
         self,
@@ -143,7 +134,7 @@ class ExperimentRunner:
             .eval()
         )
         _, loader = self._loaders(batch_size, smoke=smoke, no_download=no_download)
-        result = self._run_transfer_evaluation(surrogate, victim, attack, loader)
+        result = AttackEvaluator(victim, attack, loader, self.device, perturb_model=surrogate).run()
         self._log_evaluation_result(result)
         return result
 
@@ -182,62 +173,6 @@ class ExperimentRunner:
             pin_memory=hw.pin_memory,
             persistent_workers=hw.persistent_workers,
             prefetch_factor=hw.prefetch_factor,
-        )
-
-    def _run_transfer_evaluation(
-        self,
-        surrogate,
-        victim,
-        attack: BaseAttack,
-        loader: DataLoader,
-    ) -> EvaluationResult:
-        predictions: list[torch.Tensor] = []
-        labels: list[torch.Tensor] = []
-        linfs: list[torch.Tensor] = []
-        l2s: list[torch.Tensor] = []
-        psnrs: list[torch.Tensor] = []
-        ssims: list[torch.Tensor] = []
-        confidence_drops: list[torch.Tensor] = []
-        start = time.perf_counter()
-        for x, y in loader:
-            x = x.to(self.device)
-            y = y.to(self.device)
-            with torch.no_grad():
-                clean_probs = torch.softmax(victim(x), dim=1)
-                clean_conf = clean_probs.gather(1, y[:, None]).squeeze(1)
-            x_adv = attack.perturb(surrogate, x, y)
-            verify_perturbation(x, x_adv, attack.config.epsilon, attack.config.norm)
-            with torch.no_grad():
-                logits = victim(x_adv)
-                adv_probs = torch.softmax(logits, dim=1)
-                adv_conf = adv_probs.gather(1, y[:, None]).squeeze(1)
-                predictions.append(logits.argmax(dim=1).detach().cpu())
-                labels.append(y.detach().cpu())
-                confidence_drops.append((clean_conf - adv_conf).detach().cpu())
-            linfs.append(linf_norm(x_adv, x).detach().cpu())
-            l2s.append(l2_norm(x_adv, x).detach().cpu())
-            psnrs.append(psnr(x_adv, x).detach().cpu())
-            ssims.append(ssim(x_adv, x).detach().cpu())
-
-        elapsed = time.perf_counter() - start
-        pred = torch.cat(predictions)
-        lab = torch.cat(labels)
-        linf_all = torch.cat(linfs)
-        l2_all = torch.cat(l2s)
-        psnr_all = torch.cat(psnrs)
-        ssim_all = torch.cat(ssims)
-        confidence_drop_all = torch.cat(confidence_drops)
-        n_samples = int(lab.numel())
-        return EvaluationResult(
-            asr=attack_success_rate(pred, lab),
-            robust_acc=robust_accuracy(pred, lab),
-            linf_mean=float(linf_all.mean().item()),
-            l2_mean=float(l2_all.mean().item()),
-            psnr_mean=float(psnr_all.mean().item()),
-            ssim_mean=float(ssim_all.mean().item()),
-            time_per_image_ms=1000.0 * elapsed / max(n_samples, 1),
-            confidence_drop_mean=float(confidence_drop_all.mean().item()),
-            n_samples=n_samples,
         )
 
     def _log_evaluation_result(self, result: EvaluationResult) -> None:

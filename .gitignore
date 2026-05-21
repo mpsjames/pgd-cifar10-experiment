@@ -2,6 +2,8 @@
 /data/
 /checkpoints/
 /mlruns/
+/mlartifacts/
+mlruns.db
 /results/
 /__pycache__/
 /.pytest_cache/

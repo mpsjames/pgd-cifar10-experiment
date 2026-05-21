@@ -1,10 +1,12 @@
 mode: clean
-epochs: 100
-batch_size: 128
+epochs: 200
+batch_size: 256
 lr: 0.1
 weight_decay: 0.0005
 optimizer: SGD
 scheduler: cosine
 momentum: 0.9
 use_amp: true
+early_stopping_patience: 10
+early_stopping_min_delta: 0.001
 

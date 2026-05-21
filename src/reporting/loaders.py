@@ -27,12 +27,13 @@ def evaluation_inputs(sample_size: int) -> tuple[torch.Tensor, torch.Tensor]:
             type(exc).__name__,
             exc,
         )
-        return synthetic_batch(min(sample_size, SMOKE_SAMPLE_SIZE))
+        return synthetic_batch(min(sample_size, SMOKE_SAMPLE_SIZE), seed=SEED)
 
 
-def synthetic_batch(n: int) -> tuple[torch.Tensor, torch.Tensor]:
-    x = torch.rand(n, 3, 32, 32)
-    y = torch.randint(0, 10, (n,), dtype=torch.long)
+def synthetic_batch(n: int, seed: int = SEED) -> tuple[torch.Tensor, torch.Tensor]:
+    generator = torch.Generator().manual_seed(seed)
+    x = torch.rand(n, 3, 32, 32, generator=generator)
+    y = torch.randint(0, 10, (n,), dtype=torch.long, generator=generator)
     return x, y
 
 
@@ -63,5 +64,5 @@ def evaluation_loader(sample_size: int | None, seed: int) -> DataLoader:
             type(exc).__name__,
             exc,
         )
-        x, y = synthetic_batch(SMOKE_SAMPLE_SIZE)
+        x, y = synthetic_batch(SMOKE_SAMPLE_SIZE, seed=seed)
         return DataLoader(TensorDataset(x, y), batch_size=SMOKE_SAMPLE_SIZE, num_workers=0)

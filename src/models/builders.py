@@ -9,27 +9,15 @@ import torch
 from torch import nn
 from torchvision.models import resnet18
 
-from src.experiments.config import ModelConfig, WRNConfig
+from src.experiments.config import ModelConfig
 from src.models.normalizer import Normalizer
 from src.models.resnet import CIFARResNetAdapter
 from src.models.vit import VisionTransformerTiny
-from src.models.wideresnet import WideResNet
 
 
 def build_resnet18(model_config: ModelConfig) -> nn.Module:
     """Build the CIFAR-10 ResNet-18 variant used by this project."""
     return CIFARResNetAdapter(resnet18, model_config.num_classes)
-
-
-def build_wrn_34_10(model_config: ModelConfig) -> nn.Module:
-    """Build the WRN variant declared by `model_config.wrn`."""
-    wrn = model_config.wrn or WRNConfig()
-    return WideResNet(
-        depth=wrn.depth,
-        widen_factor=wrn.widen_factor,
-        dropout=wrn.dropout,
-        num_classes=model_config.num_classes,
-    )
 
 
 def build_vit_tiny(model_config: ModelConfig) -> nn.Module:
@@ -46,6 +34,7 @@ def build_vit_tiny(model_config: ModelConfig) -> nn.Module:
         mlp_ratio=vit.mlp_ratio,
         dropout=vit.dropout,
         attn_dropout=vit.attn_dropout,
+        drop_path=vit.drop_path,
         num_classes=model_config.num_classes,
     )
 
@@ -62,7 +51,6 @@ def wrap_with_normalization(model: nn.Module, model_config: ModelConfig) -> Norm
 
 ARCH_BUILDERS: dict[str, Callable[[ModelConfig], nn.Module]] = {
     "resnet18": build_resnet18,
-    "wrn_34_10": build_wrn_34_10,
     "vit_tiny": build_vit_tiny,
 }
 

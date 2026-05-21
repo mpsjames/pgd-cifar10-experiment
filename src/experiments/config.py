@@ -109,6 +109,8 @@ class ViTConfig:
         mlp_ratio: Hidden-to-embed ratio inside the MLP block.
         dropout: Drop probability applied after attention and MLP residuals.
         attn_dropout: Drop probability inside `nn.MultiheadAttention`.
+        drop_path: Stochastic-depth rate at the deepest block (linearly scaled
+            from 0 at block 0 to `drop_path` at the final block). 0.0 disables.
     """
 
     image_size: int = 32
@@ -119,15 +121,7 @@ class ViTConfig:
     mlp_ratio: float = 4.0
     dropout: float = 0.1
     attn_dropout: float = 0.0
-
-
-@dataclass(frozen=True)
-class WRNConfig:
-    """WideResNet architecture hyperparameters (meaningless for ResNet/ViT)."""
-
-    depth: int = 34
-    widen_factor: int = 10
-    dropout: float = 0.0
+    drop_path: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -143,16 +137,14 @@ class ModelConfig:
         cifar_std: Channel-wise CIFAR-10 standard deviation used by
             `Normalizer`.
         vit: ViT-specific hyperparameters; `None` for non-ViT architectures.
-        wrn: WideResNet-specific hyperparameters; `None` for non-WRN architectures.
     """
 
-    arch: Literal["resnet18", "wrn_34_10", "vit_tiny"]
+    arch: Literal["resnet18", "vit_tiny"]
     checkpoint_path: Path | None
     num_classes: int = 10
     cifar_mean: tuple[float, float, float] = (0.4914, 0.4822, 0.4465)
     cifar_std: tuple[float, float, float] = (0.2470, 0.2435, 0.2616)
     vit: ViTConfig | None = None
-    wrn: WRNConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -165,18 +157,33 @@ class TrainingConfig:
         batch_size: Per-step batch size.
         lr: Initial learning rate.
         weight_decay: Optimizer weight decay.
-        optimizer: Optimizer family. Only `"SGD"` is supported.
+        optimizer: Optimizer family: `"SGD"` or `"AdamW"`.
         scheduler: Scheduler family: `"cosine"` or `"multistep"`.
-        momentum: SGD momentum.
+        momentum: SGD momentum (ignored by AdamW).
+        betas: AdamW (beta1, beta2). Ignored by SGD.
         use_amp: Whether mixed precision may be used on CUDA devices.
-        grad_clip: Optional gradient clip value. Currently reserved for future
-            use by training entry points.
+        grad_clip: Optional gradient-norm clip value. Applied per step when set.
         inner_attack: Required for adversarial training; `None` for clean
             training.
         lr_milestones: Required when `scheduler == "multistep"`.
         lr_gamma: Multiplicative factor used by the multistep scheduler.
+        warmup_epochs: Number of linear-warmup epochs before the main schedule
+            kicks in (0 = disabled).
+        min_lr: Floor LR for the cosine schedule (only consulted when
+            `scheduler == "cosine"`). 0.0 keeps PyTorch defaults.
+        label_smoothing: Label-smoothing factor passed to `cross_entropy`.
+        mixup_alpha: Beta-distribution alpha for Mixup. 0.0 disables. Applied
+            only by the clean trainer (adversarial training keeps clean labels).
+        cutmix_alpha: Beta-distribution alpha for CutMix. 0.0 disables. Clean
+            trainer only.
+        mixup_switch_prob: Probability of choosing Mixup over CutMix when both
+            are enabled.
         val_every_n_epochs: Run validation every N epochs (and always on the
             final epoch). Default 1 = validate every epoch.
+        early_stopping_patience: Stop training after this many consecutive
+            validation events without improvement on `val_acc`. 0 disables.
+        early_stopping_min_delta: Minimum increase in `val_acc` that counts as
+            an improvement when early stopping is enabled.
     """
 
     mode: Literal["clean", "adversarial"]
@@ -184,15 +191,24 @@ class TrainingConfig:
     batch_size: int
     lr: float
     weight_decay: float
-    optimizer: Literal["SGD"]
+    optimizer: Literal["SGD", "AdamW"]
     scheduler: Literal["cosine", "multistep"]
     momentum: float = 0.9
+    betas: tuple[float, float] = (0.9, 0.999)
     use_amp: bool = True
     grad_clip: float | None = None
     inner_attack: AttackConfig | None = None
     lr_milestones: tuple[int, ...] | None = None
     lr_gamma: float = 0.1
+    warmup_epochs: int = 0
+    min_lr: float = 0.0
+    label_smoothing: float = 0.0
+    mixup_alpha: float = 0.0
+    cutmix_alpha: float = 0.0
+    mixup_switch_prob: float = 0.5
     val_every_n_epochs: int = 1
+    early_stopping_patience: int = 0
+    early_stopping_min_delta: float = 0.0
 
 
 @dataclass(frozen=True)

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from omegaconf import OmegaConf
+
 from src.attacks.factory import replace_attack_epsilon
 from src.attacks.pgd import PGDAttack
 from src.experiments.config import AttackConfig
-from src.experiments.config_loader import load_attack_config
+from src.experiments.config_loader import CONFIG_ROOT, load_attack_config
 
 
 def build_attack_for_report(attack_name: str):
@@ -15,9 +17,9 @@ def build_attack_for_report(attack_name: str):
 
 
 def epsilon_grid() -> list[float]:
-    """10 epsilon values spanning 0 to 16/255."""
-    base_eps = load_attack_config("pgd_10").epsilon
-    return [round(i * (2 * base_eps) / 9, 6) for i in range(10)]
+    """Epsilon values from the canonical pgd_epsilon_sweep.yaml sweep config."""
+    sweep = OmegaConf.load(CONFIG_ROOT / "sweeps" / "pgd_epsilon_sweep.yaml")
+    return list(OmegaConf.to_container(sweep.epsilons, resolve=True))
 
 
 def pgd_at_epsilon(epsilon: float) -> AttackConfig:

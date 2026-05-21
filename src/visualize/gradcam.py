@@ -63,7 +63,12 @@ def compute_gradcam(
             weights = patch_gradient.mean(dim=1, keepdim=True)
             cam_tokens = torch.relu((weights * patch_activation).sum(dim=2))
             side = int(cam_tokens.size(1) ** 0.5)
-            cam = cam_tokens[:, : side * side].reshape(-1, side, side)
+            if side * side != cam_tokens.size(1):
+                raise ValueError(
+                    f"N_patches={cam_tokens.size(1)} is not a perfect square; "
+                    "Grad-CAM reshape requires image_size divisible by patch_size"
+                )
+            cam = cam_tokens.reshape(-1, side, side)
             cam = torch.nn.functional.interpolate(
                 cam[:, None], size=x.shape[-2:], mode="bilinear", align_corners=False
             ).squeeze(1)

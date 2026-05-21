@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib
+from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def test_script_modules_import() -> None:
@@ -56,3 +58,72 @@ def test_white_box_missing_checkpoint_non_smoke_raises(tmp_path: Path, monkeypat
             smoke=False,
             model_config=exp_config.model,
         )
+
+
+def test_square_context_tracks_square_overrides(monkeypatch, square_config) -> None:
+    from scripts import run_black_box_square as script
+    from src.cli.runner import ScriptContext
+    from src.experiments.config_loader import load_experiment_config
+
+    args = Namespace(arch="resnet18", seed=42, hardware="cpu")
+
+    def fake_bootstrap(args, *, arch, attack):
+        assert attack == "square_5000"
+        config = load_experiment_config(arch=arch, attack=attack, seed=args.seed, hardware="cpu")
+        return ScriptContext(args=args, config=config)
+
+    monkeypatch.setattr(script, "bootstrap", fake_bootstrap)
+
+    ctx = script.square_context(args, square_config)
+
+    assert ctx.config.attack == square_config
+    assert ctx.config.attack.name == "Square"
+
+
+def test_epsilon_sweep_tracker_config_uses_replaced_epsilon(tmp_path: Path, monkeypatch) -> None:
+    from src.cli import sweep
+    from src.experiments.config_loader import load_attack_config, load_experiment_config
+
+    seen: dict[str, float] = {}
+
+    class FakeTracker:
+        def __init__(self, *_args, config, **_kwargs) -> None:
+            seen["tracker_epsilon"] = config.attack.epsilon
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+    class FakeRunner:
+        def __init__(self, config, _tracker) -> None:
+            seen["runner_epsilon"] = config.attack.epsilon
+
+        def evaluate_attack(self, *_args, **_kwargs):
+            return SimpleNamespace(asr=0.0, robust_acc=1.0)
+
+    monkeypatch.setattr(sweep, "ExperimentTracker", FakeTracker)
+    monkeypatch.setattr(sweep, "ExperimentRunner", FakeRunner)
+
+    args = Namespace(
+        tracking_uri=None,
+        json_dir=tmp_path,
+        no_mlflow=True,
+        variant="clean",
+        batch_size=2,
+        smoke=True,
+        no_download=True,
+    )
+    exp_config = load_experiment_config(arch="resnet18", attack="pgd_10", seed=42, hardware="cpu")
+    sweep.run_sweep_point(
+        args,
+        exp_config,
+        "resnet18",
+        42,
+        "pgd_10",
+        load_attack_config("pgd_10"),
+        0.0,
+    )
+
+    assert seen == {"tracker_epsilon": 0.0, "runner_epsilon": 0.0}

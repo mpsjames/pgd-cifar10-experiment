@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from src.attacks.square import SquareAttack
@@ -10,6 +11,12 @@ from src.cli.attack_configs import square_config
 from src.cli.runner import bootstrap, build_common_parser
 from src.experiments.runner import ExperimentRunner
 from src.models.builders import ARCH_BUILDERS
+
+
+def square_context(args, attack_cfg):
+    """Build script context whose tracked config matches the Square overrides."""
+    ctx = bootstrap(args, arch=args.arch, attack="square_5000")
+    return replace(ctx, config=replace(ctx.config, attack=attack_cfg))
 
 
 def main() -> None:
@@ -23,7 +30,7 @@ def main() -> None:
     args = parser.parse_args()
 
     attack_cfg = square_config(args)
-    ctx = bootstrap(args, arch=args.arch, attack="pgd_10")
+    ctx = square_context(args, attack_cfg)
     run_name = f"square_{args.arch}_{args.variant}_seed{args.seed}_q{attack_cfg.num_steps}"
     tags = {
         "phase": "black_box_query",

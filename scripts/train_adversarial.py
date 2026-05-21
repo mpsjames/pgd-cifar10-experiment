@@ -15,7 +15,7 @@ def main() -> None:
     args = parser.parse_args()
 
     ctx = bootstrap(args, arch=args.arch, training="apgd_at")
-    epochs = args.epochs if args.epochs is not None else None
+    epochs = args.epochs
     if epochs is None and args.smoke:
         epochs = 1
     with ctx.build_tracker(

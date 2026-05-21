@@ -107,7 +107,6 @@ def test_nb04_main_results_schema_includes_new_columns(tmp_path: Path, monkeypat
     monkeypatch.setattr(
         reports, "_render_main_figure", lambda _rows: _Path("results/figures/04.png")
     )
-    monkeypatch.setattr(reports, "_render_time_vs_asr", lambda *_args: None)
 
     csv_path, _ = reports.nb04_main_results()
 

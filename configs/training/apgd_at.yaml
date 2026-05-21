@@ -1,6 +1,6 @@
 mode: adversarial
-epochs: 100
-batch_size: 512
+epochs: 200
+batch_size: 256
 lr: 0.1
 weight_decay: 0.0005
 optimizer: SGD
@@ -20,3 +20,5 @@ inner_attack:
   rho: 0.75
   n_restarts: 1
   seed: 42
+early_stopping_patience: 10
+early_stopping_min_delta: 0.001

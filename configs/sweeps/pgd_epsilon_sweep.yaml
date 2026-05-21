@@ -10,6 +10,6 @@ epsilons:
   - 0.12549019607843137
   - 0.18823529411764706
   - 0.25098039215686274
-architectures: [resnet18, wrn_34_10]
+architectures: [resnet18]
 seed: 42
 

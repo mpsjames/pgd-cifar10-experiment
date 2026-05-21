@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from src.experiments.config import AttackConfig
-from src.experiments.config_loader import load_attack_config, load_experiment_config
+from src.experiments.config_loader import (
+    load_attack_config,
+    load_experiment_config,
+    load_hardware_config,
+)
 
 
 def test_every_attack_yaml_loads_as_attack_config(repo_root: Path) -> None:
@@ -30,3 +36,18 @@ def test_apgd_attack_yaml_loads_optional_fields(repo_root: Path) -> None:
     assert config.name == "APGD-CE"
     assert config.rho == 0.75
     assert config.n_restarts == 1
+
+
+@pytest.mark.parametrize("seed", [0, -1])
+def test_seed_must_be_positive_at_config_load(repo_root: Path, seed: int) -> None:
+    with pytest.raises(ValueError, match="seed must be a positive non-zero integer"):
+        load_experiment_config(repo_root / "configs", arch="resnet18", seed=seed)
+
+
+def test_hardware_device_literal_is_validated(tmp_path: Path) -> None:
+    hardware_dir = tmp_path / "hardware"
+    hardware_dir.mkdir()
+    (hardware_dir / "bad.yaml").write_text("device: tpu\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="device must be 'cuda' or 'cpu'"):
+        load_hardware_config("bad", tmp_path)

@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import torch
 
-from src.experiments.config import ModelConfig, ViTConfig, WRNConfig
+from src.experiments.config import ModelConfig, ViTConfig
 from src.models.builders import ARCH_BUILDERS
 
 
 def _default_model_config(arch: str) -> ModelConfig:
     vit = ViTConfig() if arch == "vit_tiny" else None
-    wrn = WRNConfig() if arch == "wrn_34_10" else None
-    return ModelConfig(arch=arch, checkpoint_path=None, vit=vit, wrn=wrn)  # type: ignore[arg-type]
+    return ModelConfig(arch=arch, checkpoint_path=None, vit=vit)  # type: ignore[arg-type]
 
 
 def test_all_builders_forward_pass() -> None:
@@ -24,7 +23,6 @@ def test_all_builders_forward_pass() -> None:
 def test_all_builders_param_count_in_range() -> None:
     expected_ranges = {
         "resnet18": (10_000_000, 13_000_000),
-        "wrn_34_10": (40_000_000, 50_000_000),
         "vit_tiny": (4_000_000, 8_000_000),
     }
     for arch, builder in ARCH_BUILDERS.items():

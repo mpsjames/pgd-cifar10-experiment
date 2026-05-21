@@ -10,13 +10,16 @@ from src.cli.runner import bootstrap, build_common_parser
 from src.experiments.runner import ExperimentRunner
 from src.models.builders import ARCH_BUILDERS
 
+_CONFIG_ROOT = Path(__file__).resolve().parents[1] / "configs"
+_ATTACK_CHOICES = sorted(p.stem for p in (_CONFIG_ROOT / "attack").glob("*.yaml"))
+
 
 def main() -> None:
     parser = build_common_parser("Evaluate a white-box attack")
     parser.add_argument("--arch", choices=sorted(ARCH_BUILDERS), required=True)
     parser.add_argument(
         "--attack",
-        choices=["fgsm", "bim_10", "pgd_10", "pgd_40", "pgd_100", "apgd_ce_10", "apgd_ce_100"],
+        choices=_ATTACK_CHOICES,
         default="apgd_ce_100",
     )
     parser.add_argument("--checkpoint", type=Path, default=None)

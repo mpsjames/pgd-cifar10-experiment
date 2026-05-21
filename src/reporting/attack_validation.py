@@ -60,7 +60,7 @@ def nb03_attack_validation() -> Path:
         attacks[-1].perturb(model, x[:1], y[:1]),
         "PGD-10 perturbation example\n"
         "CIFAR-10 test set, n=1000 sample protocol | ResNet-18 | "
-        "epsilon=8/255, alpha=2/255, random_start=True | seeds={42}",
+        "epsilon=8/255, alpha=2/255, random_start=True | seed=42",
     )
     out = Path("results/figures/03_attack_validation.png")
     fig.savefig(out)

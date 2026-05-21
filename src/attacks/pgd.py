@@ -48,7 +48,7 @@ class PGDAttack(BaseAttack):
                     noise = torch.empty_like(x_float).uniform_(
                         -self.config.epsilon, self.config.epsilon
                     )
-                    x_adv = (x_float + noise).clamp(0.0, 1.0)
+                    x_adv = self._project_linf(x_float, x_float + noise, self.config.epsilon)
                 else:
                     x_adv = x_float.clone()
 

@@ -11,7 +11,8 @@ from torch import Tensor, nn
 def run_restart(attack, model: nn.Module, x_orig: Tensor, y: Tensor, restart: int):
     config = attack.config
     device = x_orig.device
-    generator = torch.Generator(device=device).manual_seed(int(config.seed or 42) + restart)
+    seed_val = 42 if config.seed is None else int(config.seed)
+    generator = torch.Generator(device=device).manual_seed(seed_val + restart)
     if config.random_start:
         noise = (
             torch.rand(x_orig.shape, generator=generator, device=device, dtype=x_orig.dtype) * 2.0

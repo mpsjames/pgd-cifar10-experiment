@@ -15,12 +15,11 @@ def nb11_discussion() -> Path:
     limitations = [
         "single-seed workflow — set seed in config or pass --seed for reproducibility",
         "no AutoAttack baseline (plan section 16; could be added if NB11 compels)",
-        "WRN RobustBench fallback when AT does not fit in 4 GB VRAM",
         "no L2 / L1 / L0 attacks (Linf only, plan section 16)",
         "no targeted attacks (plan section 4.2)",
         "no TRADES, MART, or other defense beyond APGD AT (plan section 16)",
         "no ImageNet - CIFAR-10 only (plan section 16)",
-        "epsilon sweep descoped to 2 archs (plan section 7.3)",
+        "epsilon sweep limited to ResNet-18 (plan section 7.3)",
         "no distributed / multi-GPU training (plan section 16)",
         "no AT hyperparameter tuning beyond APGD AT defaults (plan section 16)",
     ]

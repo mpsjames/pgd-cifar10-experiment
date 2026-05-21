@@ -1,8 +1,10 @@
 """Shared constants for notebook reporting."""
 
-ARCHES = ["resnet18", "wrn_34_10", "vit_tiny"]
+from src.models.builders import ARCH_BUILDERS
+
+ARCHES: list[str] = sorted(ARCH_BUILDERS)
 SEED = 42
-EPSILON_SWEEP_ARCHES = ["resnet18", "wrn_34_10"]
+EPSILON_SWEEP_ARCHES = ["resnet18"]
 NB03_SAMPLE_SIZE = 1000
 NB05_SAMPLE_SIZE = 1000
 NB06_NUM_SAMPLES = 8

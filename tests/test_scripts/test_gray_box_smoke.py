@@ -51,5 +51,7 @@ def test_gray_box_pairs_load_and_have_variant_keys() -> None:
     pairs = _load_pairs("gray_box")
     assert pairs, "gray-box pair registry must not be empty"
     assert all({"arch", "surrogate_seed", "victim_seed"} <= set(p) for p in pairs)
+    assert {p["surrogate_seed"] for p in pairs} == {42}
+    assert {p["victim_seed"] for p in pairs} == {42}
     variants = {(p.get("surrogate_variant"), p.get("victim_variant")) for p in pairs}
-    assert ("clean", "adv") in variants, "gray-box must include an adv-victim pair"
+    assert variants == {("clean", "adv")}
