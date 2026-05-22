@@ -5,6 +5,8 @@ from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 def test_script_modules_import() -> None:
     for module in [
@@ -80,15 +82,15 @@ def test_square_context_tracks_square_overrides(monkeypatch, square_config) -> N
     assert ctx.config.attack.name == "Square"
 
 
-def test_epsilon_sweep_tracker_config_uses_replaced_epsilon(tmp_path: Path, monkeypatch) -> None:
+def _make_sweep_fakes(monkeypatch, seen: dict):
+    """Patch ExperimentTracker and ExperimentRunner for sweep tests."""
     from src.cli import sweep
-    from src.experiments.config_loader import load_attack_config, load_experiment_config
-
-    seen: dict[str, float] = {}
 
     class FakeTracker:
-        def __init__(self, *_args, config, **_kwargs) -> None:
+        def __init__(self, _exp_name, run_name, tags, config, **_kwargs) -> None:
             seen["tracker_epsilon"] = config.attack.epsilon
+            seen["run_name"] = run_name
+            seen["tags"] = tags
 
         def __enter__(self):
             return self
@@ -101,10 +103,18 @@ def test_epsilon_sweep_tracker_config_uses_replaced_epsilon(tmp_path: Path, monk
             seen["runner_epsilon"] = config.attack.epsilon
 
         def evaluate_attack(self, *_args, **_kwargs):
-            return SimpleNamespace(asr=0.0, robust_acc=1.0)
+            return SimpleNamespace(asr=0.0, conditional_asr=0.0, robust_acc=1.0)
 
     monkeypatch.setattr(sweep, "ExperimentTracker", FakeTracker)
     monkeypatch.setattr(sweep, "ExperimentRunner", FakeRunner)
+
+
+def test_epsilon_sweep_tracker_config_uses_replaced_epsilon(tmp_path: Path, monkeypatch) -> None:
+    from src.cli import sweep
+    from src.experiments.config_loader import load_attack_config, load_experiment_config
+
+    seen: dict = {}
+    _make_sweep_fakes(monkeypatch, seen)
 
     args = Namespace(
         tracking_uri=None,
@@ -126,4 +136,38 @@ def test_epsilon_sweep_tracker_config_uses_replaced_epsilon(tmp_path: Path, monk
         0.0,
     )
 
-    assert seen == {"tracker_epsilon": 0.0, "runner_epsilon": 0.0}
+    assert seen["tracker_epsilon"] == pytest.approx(0.0)
+    assert seen["runner_epsilon"] == pytest.approx(0.0)
+
+
+def test_epsilon_sweep_run_name_and_tags_include_variant(tmp_path: Path, monkeypatch) -> None:
+    """Regression: clean and adv sweeps must produce distinct run identities."""
+    from src.cli import sweep
+    from src.experiments.config_loader import load_attack_config, load_experiment_config
+
+    for variant in ("clean", "adv"):
+        seen: dict = {}
+        _make_sweep_fakes(monkeypatch, seen)
+        args = Namespace(
+            tracking_uri=None,
+            json_dir=tmp_path,
+            no_mlflow=True,
+            variant=variant,
+            batch_size=2,
+            smoke=True,
+            no_download=True,
+        )
+        exp_config = load_experiment_config(
+            arch="resnet18", attack="pgd_10", seed=42, hardware="cpu"
+        )
+        sweep.run_sweep_point(
+            args,
+            exp_config,
+            "resnet18",
+            42,
+            "pgd_10",
+            load_attack_config("pgd_10"),
+            8 / 255,
+        )
+        assert variant in seen["run_name"], f"variant missing from run_name for {variant!r}"
+        assert seen["tags"].get("variant") == variant, f"variant tag missing for {variant!r}"

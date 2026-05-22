@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 
@@ -89,6 +90,7 @@ def test_nb04_main_results_schema_includes_new_columns(tmp_path: Path, monkeypat
     eps = 8 / 255
     fake_result = EvaluationResult(
         asr=0.9,
+        conditional_asr=0.85,
         robust_acc=0.1,
         linf_mean=eps,
         l2_mean=eps,
@@ -188,3 +190,77 @@ def test_nb03_invariants_are_computed_from_attack_outputs(tmp_path: Path, monkey
     data = (tmp_path / "results/tables/03_invariants.json").read_text(encoding="utf-8")
     assert '"linf_holds": false' in data
     assert '"pixel_domain_holds": false' in data
+
+
+def test_json_fallback_reads_square_runs_when_mlflow_disabled(tmp_path: Path, monkeypatch) -> None:
+    """Regression: read_square_mlflow_runs must fall back to JSON when MLflow disabled."""
+    import json
+
+    from src.reporting import queries
+
+    log_dir = tmp_path / "results" / "logs"
+    log_dir.mkdir(parents=True)
+    payload = {
+        "run_name": "black_box_resnet18",
+        "status": "FINISHED",
+        "tags": {
+            "phase": "black_box_query",
+            "attack": "square",
+            "arch": "resnet18",
+            "variant": "clean",
+            "num_queries": "5000",
+        },
+        "metrics": {"asr": 0.42, "robust_acc": 0.58, "time_per_image_ms": 12.3},
+        "params": {},
+        "config": {},
+    }
+    (log_dir / "run_square_001.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(queries, "_JSON_LOG_DIR", log_dir)
+    # Disable MLflow so the function must fall back to JSON
+    monkeypatch.setattr(queries, "resolve_tracking_uri", lambda: None)
+
+    rows = queries.read_square_mlflow_runs()
+
+    assert len(rows) == 1
+    assert rows[0]["arch"] == "resnet18"
+    assert rows[0]["variant"] == "clean"
+    assert rows[0]["asr"] == pytest.approx(0.42)
+
+
+def test_json_fallback_reads_transfer_runs_when_mlflow_disabled(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression: read_transfer_mlflow_runs must fall back to JSON when MLflow disabled."""
+    import json
+
+    from src.reporting import queries
+
+    log_dir = tmp_path / "results" / "logs"
+    log_dir.mkdir(parents=True)
+    payload = {
+        "run_name": "transfer_cross_arch",
+        "status": "FINISHED",
+        "tags": {
+            "phase": "transfer",
+            "mode": "cross_arch",
+            "surrogate": "resnet18",
+            "victim": "vit_tiny",
+        },
+        "metrics": {"asr": 0.31},
+        "params": {},
+        "config": {},
+    }
+    (log_dir / "run_transfer_001.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(queries, "_JSON_LOG_DIR", log_dir)
+    monkeypatch.setattr(queries, "resolve_tracking_uri", lambda: None)
+
+    rows = queries.read_transfer_mlflow_runs()
+
+    assert len(rows) == 1
+    assert rows[0]["mode"] == "cross_arch"
+    assert rows[0]["surrogate"] == "resnet18"
+    assert rows[0]["asr"] == pytest.approx(0.31)

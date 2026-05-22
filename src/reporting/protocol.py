@@ -17,7 +17,8 @@ def nb01_protocol() -> dict[str, object]:
         frozen = True
     else:
         frozen = False
-    assert frozen, "ExperimentConfig must be frozen"
+    if not frozen:
+        raise RuntimeError("ExperimentConfig must be frozen")
     return {
         "frozen_configs": frozen,
         "seed": SEED,

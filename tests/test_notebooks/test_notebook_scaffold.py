@@ -37,6 +37,21 @@ def test_all_notebooks_exist_and_start_with_attack_tests(repo_root: Path) -> Non
         )
 
 
+def test_notebook_bootstrap_uses_pyproject_toml_not_checkpoints(repo_root: Path) -> None:
+    """Regression: bootstrap must not use checkpoints/ which is gitignored."""
+    notebook_dir = repo_root / "notebooks"
+    for name in EXPECTED_NOTEBOOKS:
+        notebook = json.loads((notebook_dir / name).read_text(encoding="utf-8"))
+        first_code = next(c for c in notebook["cells"] if c["cell_type"] == "code")
+        source = "".join(first_code["source"])
+        assert "checkpoints" not in source, (
+            f"{name}: bootstrap still references 'checkpoints' (gitignored directory)"
+        )
+        assert "pyproject.toml" in source, (
+            f"{name}: bootstrap does not use 'pyproject.toml' as root marker"
+        )
+
+
 def test_src_reporting_imports_in_notebooks_resolve(repo_root: Path) -> None:
     pattern = re.compile(r"from (src\.reporting(?:\.[\w_]+)*) import ")
     for name in EXPECTED_NOTEBOOKS:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from src.evaluation.metrics import (
@@ -12,11 +13,14 @@ from src.evaluation.metrics import (
 )
 
 
-def test_asr_matches_robust_acc_complement() -> None:
+def test_asr_is_robust_error_rate() -> None:
+    # asr = (adv_pred != labels).mean() — counts all mismatches including
+    # samples already wrong under clean model; equals 1 - robust_acc.
     pred = torch.tensor([1, 2, 3, 4])
     labels = torch.tensor([1, 0, 3, 0])
-    assert attack_success_rate(pred, labels) == 0.5
-    assert robust_accuracy(pred, labels) == 0.5
+    assert attack_success_rate(pred, labels) == pytest.approx(0.5)
+    assert robust_accuracy(pred, labels) == pytest.approx(0.5)
+    assert attack_success_rate(pred, labels) + robust_accuracy(pred, labels) == pytest.approx(1.0)
 
 
 def test_norms_match_definition() -> None:

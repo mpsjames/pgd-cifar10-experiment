@@ -23,8 +23,10 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
         raise ValueError(f"No rows to write: {path}")
-    fieldnames = list(rows[0])
+    # Union keys from all rows (preserving first-seen insertion order) so that
+    # later rows with extra keys do not silently lose data.
+    fieldnames = list(dict.fromkeys(k for row in rows for k in row))
     with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)

@@ -224,7 +224,6 @@ class ExperimentConfig:
         tracking: Experiment tracking settings.
         hardware: Runtime hardware preset (workers, pin_memory, cudnn flags,
             AMP override) selected via `configs/hardware/<name>.yaml`.
-        output_dir: Root output directory declared by the composed config.
     """
 
     experiment_id: str
@@ -234,4 +233,3 @@ class ExperimentConfig:
     training: TrainingConfig | None
     tracking: TrackingConfig
     hardware: HardwareConfig
-    output_dir: Path

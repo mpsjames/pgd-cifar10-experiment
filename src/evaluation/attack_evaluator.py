@@ -27,7 +27,13 @@ class EvaluationResult:
     """Store aggregate metrics from one attack-evaluation run.
 
     Fields:
-        asr: Attack success rate in `[0, 1]`.
+        asr: Robust error rate (1 - robust_acc) in `[0, 1]`. Counts all
+            adversarially misclassified samples, including those already wrong
+            under clean model.
+        conditional_asr: True attack success rate in `[0, 1]`. Fraction of
+            samples that were correctly classified by the clean model but
+            misclassified after the attack. Returns 0.0 when no samples are
+            clean-correct.
         robust_acc: Accuracy under attack in `[0, 1]`.
         linf_mean: Mean per-sample Linf perturbation magnitude.
         l2_mean: Mean per-sample L2 perturbation magnitude.
@@ -48,6 +54,7 @@ class EvaluationResult:
     """
 
     asr: float
+    conditional_asr: float
     robust_acc: float
     linf_mean: float
     l2_mean: float
@@ -111,6 +118,7 @@ class AttackEvaluator:
             self.perturb_model.to(self.device).eval()
         attack_model = self.perturb_model if self.perturb_model is not None else self.model
         predictions: list[torch.Tensor] = []
+        clean_predictions: list[torch.Tensor] = []
         labels: list[torch.Tensor] = []
         linfs: list[torch.Tensor] = []
         l2s: list[torch.Tensor] = []
@@ -123,8 +131,10 @@ class AttackEvaluator:
             x = x.to(self.device)
             y = y.to(self.device)
             with torch.no_grad():
-                clean_probs = torch.softmax(self.model(x), dim=1)
+                clean_logits = self.model(x)
+                clean_probs = torch.softmax(clean_logits, dim=1)
                 clean_conf = clean_probs.gather(1, y[:, None]).squeeze(1)
+                clean_predictions.append(clean_logits.argmax(dim=1).detach().cpu())
             x_adv = self.attack.perturb(attack_model, x, y)
             verify_perturbation(x, x_adv, self.attack.config.epsilon, self.attack.config.norm)
             with torch.no_grad():
@@ -140,7 +150,12 @@ class AttackEvaluator:
             ssims.append(ssim(x_adv, x).detach().cpu())
 
         elapsed = time.perf_counter() - start
+        if not predictions:
+            raise ValueError(
+                "AttackEvaluator.run() received an empty DataLoader — no samples were evaluated."
+            )
         pred = torch.cat(predictions)
+        clean_pred = torch.cat(clean_predictions)
         lab = torch.cat(labels)
         linf_all = torch.cat(linfs)
         l2_all = torch.cat(l2s)
@@ -150,8 +165,18 @@ class AttackEvaluator:
         correct = pred == lab
         n_samples = int(lab.numel())
 
+        clean_correct_mask = clean_pred == lab
+        n_clean_correct = int(clean_correct_mask.sum().item())
+        if n_clean_correct > 0:
+            conditional_asr = float(
+                (pred[clean_correct_mask] != lab[clean_correct_mask]).float().mean().item()
+            )
+        else:
+            conditional_asr = 0.0
+
         return EvaluationResult(
             asr=attack_success_rate(pred, lab),
+            conditional_asr=conditional_asr,
             robust_acc=robust_accuracy(pred, lab),
             linf_mean=float(linf_all.mean().item()),
             l2_mean=float(l2_all.mean().item()),

@@ -40,11 +40,12 @@ for arch in "${ARCHES[@]}"; do
   "${PYTHON}" scripts/train_adversarial.py --arch "${arch}" --seed 42 --epochs 200 --batch-size 256 "${HARDWARE_ARGS[@]}"
 done
 
+WHITE_BOX_ATTACKS=(fgsm bim_10 pgd_10 pgd_40 pgd_100 apgd_ce_10 apgd_ce_100)
+
 for arch in "${ARCHES[@]}"; do
-  "${PYTHON}" scripts/run_white_box.py --arch "${arch}" --attack fgsm --seed 42 "${HARDWARE_ARGS[@]}"
-  "${PYTHON}" scripts/run_white_box.py --arch "${arch}" --attack bim_10 --seed 42 "${HARDWARE_ARGS[@]}"
-  "${PYTHON}" scripts/run_white_box.py --arch "${arch}" --attack pgd_10 --seed 42 "${HARDWARE_ARGS[@]}"
-  "${PYTHON}" scripts/run_white_box.py --arch "${arch}" --attack apgd_ce_10 --seed 42 "${HARDWARE_ARGS[@]}"
+  for attack in "${WHITE_BOX_ATTACKS[@]}"; do
+    "${PYTHON}" scripts/run_white_box.py --arch "${arch}" --attack "${attack}" --seed 42 "${HARDWARE_ARGS[@]}"
+  done
 done
 
 "${PYTHON}" scripts/run_transfer.py --mode cross_arch "${HARDWARE_ARGS[@]}"
@@ -57,6 +58,7 @@ for arch in "${ARCHES[@]}"; do
   done
 done
 
-for nb in notebooks/*.ipynb; do
-  "${PYTHON}" -m jupyter nbconvert --to notebook --execute "${nb}" --inplace
-done
+# Notebooks are executed manually or via CI.
+# Do NOT run notebooks --inplace here; that would mutate tracked source files.
+# To produce executed copies, run:
+#   jupyter nbconvert --to notebook --execute notebooks/*.ipynb --output-dir results/executed_notebooks/

@@ -28,7 +28,6 @@ def load_experiment_config(
     training: str | None = None,
     hardware: str | None = None,
     seed: int | None = None,
-    output_dir: Path | None = None,
     experiment_id: str = "pgd_cifar10",
 ) -> ExperimentConfig:
     """Load and compose the experiment configuration for one run.
@@ -37,13 +36,15 @@ def load_experiment_config(
         config_root: Root directory containing the YAML fragments.
         arch: Optional architecture override. When `None`, use the default from
             `configs/config.yaml`.
-        attack: Optional attack override.
+        attack: Optional attack override. When `None`, the default attack from
+            `configs/config.yaml` is used — there is no way to disable attack
+            loading via this argument. Use the returned config's `attack` field
+            to detect or replace it post-load.
         training: Optional training override.
         hardware: Optional hardware preset override (stem under
             `configs/hardware/`). When `None`, use the default from
             `configs/config.yaml` (`gpu_default`).
         seed: Optional seed override.
-        output_dir: Optional output-directory override.
         experiment_id: Logical experiment identifier attached to the returned
             config.
 
@@ -74,7 +75,6 @@ def load_experiment_config(
         training=training_cfg,
         tracking=_load_tracking_config(base),
         hardware=hardware_cfg,
-        output_dir=Path(output_dir if output_dir is not None else root.output_dir),
     )
 
 

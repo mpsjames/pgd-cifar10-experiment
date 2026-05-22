@@ -38,7 +38,7 @@ def nb06_qualitative() -> Path:
     attack = build_attack_for_report("pgd_10")
     x_adv = attack.perturb(model, x, y)
     title = (
-        f"PGD-10 perturbations on 8 samples selected by lowest robust margin\n"
+        f"PGD-10 perturbations on 8 samples selected by lowest adversarial margin\n"
         f"CIFAR-10 test subset, n=8 | ResNet-18 | epsilon=8/255, alpha=2/255, "
         f"random_start=True | seed={SEED}"
         if have_real
@@ -46,7 +46,7 @@ def nb06_qualitative() -> Path:
         "synthetic batch, n=8 | ResNet-18 | epsilon=8/255, alpha=2/255, random_start=True"
     )
     fig = make_perturbation_panel(x.detach().cpu(), x_adv.detach().cpu(), title)
-    out = Path("results/figures/06_fgsm_bim_pgd_comparison.png")
+    out = Path("results/figures/06_pgd_qualitative_panel.png")
     fig.savefig(out)
     plt.close(fig)
     for arch in ARCHES:
@@ -55,11 +55,20 @@ def nb06_qualitative() -> Path:
             target_model = build_fresh_model(arch)
         target_model = target_model.to(device).eval()
         heatmap = compute_gradcam(target_model, arch, x[:1])
-        assert heatmap.shape == (1, 32, 32), f"Grad-CAM shape mismatch: {arch}"
+        if heatmap.shape != (1, 32, 32):
+            raise ValueError(
+                f"Grad-CAM shape mismatch for {arch}: expected (1, 32, 32), got {heatmap.shape}"
+            )
     return out
 
 
 def _select_low_margin_pgd_samples(model, n: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """Select the n samples with the lowest adversarial margin after PGD-10.
+
+    Margin is defined as true-class logit minus the maximum competing-class
+    logit on the adversarial example. Lower margin means the attack nearly or
+    fully succeeded.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     loader = evaluation_loader(sample_size=1000, seed=SEED)
     attack = build_attack_for_report("pgd_10")
@@ -71,9 +80,13 @@ def _select_low_margin_pgd_samples(model, n: int) -> tuple[torch.Tensor, torch.T
         x, y = x.to(device), y.to(device)
         x_adv = attack.perturb(model, x, y)
         with torch.no_grad():
-            probs = torch.softmax(model(x_adv), dim=1)
-            target_prob = probs.gather(1, y[:, None]).squeeze(1)
-        margins.extend(target_prob.cpu().tolist())
+            logits = model(x_adv)
+            true_logit = logits.gather(1, y[:, None]).squeeze(1)
+            other_logits = logits.clone()
+            other_logits.scatter_(1, y[:, None], float("-inf"))
+            max_other_logit = other_logits.max(dim=1).values
+            margin = true_logit - max_other_logit
+        margins.extend(margin.cpu().tolist())
         xs.append(x.cpu())
         ys.append(y.cpu())
     all_x = torch.cat(xs)

@@ -39,7 +39,10 @@ def run_pair(pair: dict, args) -> None:
             smoke=args.smoke,
             no_download=args.no_download,
         )
-    print(f"{spec['run_name']}: asr={result.asr:.4f}, robust_acc={result.robust_acc:.4f}")
+    print(
+        f"{spec['run_name']}: asr={result.asr:.4f}, "
+        f"conditional_asr={result.conditional_asr:.4f}, robust_acc={result.robust_acc:.4f}"
+    )
 
 
 def pair_spec(pair: dict, args) -> dict:

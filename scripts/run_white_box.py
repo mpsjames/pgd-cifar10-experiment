@@ -46,8 +46,8 @@ def main() -> None:
             no_download=args.no_download,
         )
     print(
-        f"{run_name}: asr={result.asr:.4f}, robust_acc={result.robust_acc:.4f}, "
-        f"time/img={result.time_per_image_ms:.2f}ms"
+        f"{run_name}: asr={result.asr:.4f}, conditional_asr={result.conditional_asr:.4f}, "
+        f"robust_acc={result.robust_acc:.4f}, time/img={result.time_per_image_ms:.2f}ms"
     )
 
 

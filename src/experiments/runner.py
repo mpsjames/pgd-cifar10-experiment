@@ -179,6 +179,7 @@ class ExperimentRunner:
         self.tracker.log_metrics(
             {
                 "asr": result.asr,
+                "conditional_asr": result.conditional_asr,
                 "robust_acc": result.robust_acc,
                 "linf_mean": result.linf_mean,
                 "l2_mean": result.l2_mean,

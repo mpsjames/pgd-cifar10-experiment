@@ -130,7 +130,7 @@ Tracking uses an MLflow HTTP server plus always-on local mirrors:
 
 - MLflow API at `http://127.0.0.1:5000`
 - JSON mirror under `results/logs/`
-- Per-run log files plus rotating `results/logs/experiment.log`
+- Global rotating `results/logs/experiment.log` plus per-run JSON mirror
 
 If the JSON sink fails, the MLflow run is preserved and tagged with
 `json_sink_failed=true` instead of aborting the experiment.

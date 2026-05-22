@@ -7,11 +7,13 @@ import torch
 from src.evaluation.attack_evaluator import AttackEvaluator, EvaluationResult
 from src.reporting.constants import SEED
 from src.reporting.loaders import evaluation_loader
+from src.utils.seed import set_all_seeds
 
 
 def evaluate_attack(
     model, attack, sample_size: int | None, seed: int, keep_per_sample: bool = False
 ) -> EvaluationResult:
+    set_all_seeds(seed)
     loader = evaluation_loader(sample_size, seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return AttackEvaluator(model, attack, loader, device, keep_per_sample=keep_per_sample).run()

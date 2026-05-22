@@ -103,8 +103,13 @@ def _render_time_vs_asr(
     visible = [
         r for r in rows if str(r.get("asr", "")) != "" and str(r.get("time_per_image_ms", "")) != ""
     ]
+    square_visible = [
+        r
+        for r in (square_rows or [])
+        if str(r.get("asr_mean", "")) != "" and str(r.get("time_per_image_ms_mean", "")) != ""
+    ]
     fig, ax = plt.subplots(figsize=(6, 4))
-    if not visible:
+    if not visible and not square_visible:
         ax.text(0.5, 0.5, "full-campaign-pending", ha="center", va="center")
         ax.set_title("Time-vs-ASR (awaiting checkpoints)")
         fig.savefig(fig_path)
@@ -121,7 +126,7 @@ def _render_time_vs_asr(
         for x, y, label in zip(xs, ys, labels, strict=True):
             ax.annotate(label, (x, y), fontsize=7, alpha=0.7)
 
-    for row in square_rows or []:
+    for row in square_visible:
         ax.scatter(
             float(row["time_per_image_ms_mean"]),
             float(row["asr_mean"]),

@@ -48,13 +48,15 @@ def run_sweep_point(
 ) -> None:
     attack_config = replace_attack_epsilon(base, epsilon)
     exp_config = replace(exp_config, attack=attack_config)
-    run_name = f"epsilon_sweep_{attack_name}_{arch}_eps{epsilon:.6f}_seed{seed}"
+    variant = getattr(args, "variant", "clean")
+    run_name = f"epsilon_sweep_{attack_name}_{arch}_eps{epsilon:.6f}_seed{seed}_{variant}"
     tags = {
         "phase": "epsilon_sweep",
         "arch": arch,
         "seed": str(seed),
         "epsilon": f"{epsilon:.12f}",
         "attack": attack_name,
+        "variant": variant,
     }
     with ExperimentTracker(
         exp_config.tracking.experiment_name,
@@ -72,4 +74,7 @@ def run_sweep_point(
             smoke=args.smoke,
             no_download=args.no_download,
         )
-    print(f"{run_name}: asr={result.asr:.4f}, robust_acc={result.robust_acc:.4f}")
+    print(
+        f"{run_name}: asr={result.asr:.4f}, conditional_asr={result.conditional_asr:.4f}, "
+        f"robust_acc={result.robust_acc:.4f}"
+    )
