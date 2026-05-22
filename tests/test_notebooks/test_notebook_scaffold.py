@@ -18,6 +18,7 @@ EXPECTED_NOTEBOOKS = [
     "09_transfer_attack_analysis.ipynb",
     "10_architecture_robustness_comparison.ipynb",
     "11_discussion_and_limitations.ipynb",
+    "12_attack_experiment_synthesis.ipynb",
 ]
 
 
@@ -53,7 +54,7 @@ def test_notebook_bootstrap_uses_pyproject_toml_not_checkpoints(repo_root: Path)
 
 
 def test_src_reporting_imports_in_notebooks_resolve(repo_root: Path) -> None:
-    pattern = re.compile(r"from (src\.reporting(?:\.[\w_]+)*) import ")
+    pattern = re.compile(r"from (src\.reporting(?:\.\w+)*) import ")
     for name in EXPECTED_NOTEBOOKS:
         notebook = json.loads((repo_root / "notebooks" / name).read_text(encoding="utf-8"))
         for cell in notebook["cells"]:
