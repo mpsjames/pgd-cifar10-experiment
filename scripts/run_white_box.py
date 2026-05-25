@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.attacks.factory import AttackFactory
+from src.attacks.factory import AttackFactory, replace_attack_epsilon
 from src.cli.runner import bootstrap, build_common_parser
 from src.experiments.runner import ExperimentRunner
 from src.models.builders import ARCH_BUILDERS
@@ -24,14 +24,23 @@ def main() -> None:
     )
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--variant", choices=["clean", "adv"], default="clean")
+    parser.add_argument(
+        "--no-attack",
+        action="store_true",
+        help="Zero out epsilon to measure clean accuracy with the same evaluation pipeline.",
+    )
     args = parser.parse_args()
 
     ctx = bootstrap(args, arch=args.arch, attack=args.attack)
-    attack = AttackFactory.build(ctx.config.attack)
-    run_name = f"white_box_{args.attack}_{args.arch}_{args.variant}_seed{args.seed}"
+    attack_config = ctx.config.attack
+    if args.no_attack:
+        attack_config = replace_attack_epsilon(attack_config, 0.0)
+    attack = AttackFactory.build(attack_config)
+    attack_label = "none" if args.no_attack else args.attack
+    run_name = f"white_box_{attack_label}_{args.arch}_{args.variant}_seed{args.seed}"
     tags = {
         "phase": "white_box",
-        "attack": args.attack,
+        "attack": attack_label,
         "arch": args.arch,
         "seed": str(args.seed),
         "variant": args.variant,

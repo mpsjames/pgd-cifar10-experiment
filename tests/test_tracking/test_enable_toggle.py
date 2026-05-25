@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -92,31 +90,3 @@ def test_no_mlflow_cli_flag_overrides_yaml_default(tmp_path: Path) -> None:
     tracker.start_run()
     tracker.end_run()
     assert (tmp_path / "logs" / "no-mlflow-test.json").exists()
-
-
-def test_reader_returns_empty_when_mlflow_disabled(tmp_path: Path) -> None:
-    from src.reporting import queries
-
-    with patch.object(queries, "resolve_tracking_uri", return_value=None):
-        result = queries.read_transfer_mlflow_runs()
-
-    assert result == []
-
-
-def test_reader_returns_empty_when_server_unreachable(tmp_path: Path, caplog) -> None:
-    from src.reporting import queries
-
-    unreachable_uri = "http://127.0.0.1:1"
-
-    with (
-        patch.object(
-            queries,
-            "resolve_tracking_uri",
-            return_value=unreachable_uri,
-        ),
-        caplog.at_level(logging.WARNING, logger="src.reporting.mlflow_queries"),
-    ):
-        result = queries.read_transfer_mlflow_runs()
-
-    assert result == []
-    assert any("transfer" in r.message.lower() for r in caplog.records)

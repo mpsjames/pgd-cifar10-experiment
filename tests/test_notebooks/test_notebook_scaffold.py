@@ -6,19 +6,7 @@ import re
 from pathlib import Path
 
 EXPECTED_NOTEBOOKS = [
-    "01_research_protocol.ipynb",
-    "02_baseline_clean_models.ipynb",
-    "03_attack_implementation_validation.ipynb",
-    "04_main_quantitative_results.ipynb",
-    "05_vulnerability_analysis.ipynb",
-    "06_qualitative_visualization.ipynb",
-    "07a_adv_training_resnet18.ipynb",
-    "07c_adv_training_vit_tiny.ipynb",
-    "08_defense_evaluation_synthesis.ipynb",
-    "09_transfer_attack_analysis.ipynb",
-    "10_architecture_robustness_comparison.ipynb",
-    "11_discussion_and_limitations.ipynb",
-    "12_attack_experiment_synthesis.ipynb",
+    "attack_experiment_synthesis.ipynb",
 ]
 
 

@@ -20,5 +20,5 @@ inner_attack:
   rho: 0.75
   n_restarts: 1
   seed: 42
-early_stopping_patience: 10
+early_stopping_patience: 20
 early_stopping_min_delta: 0.001
