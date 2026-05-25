@@ -1,4 +1,4 @@
-# ⚔️ PGD Adversarial Attack & Defense — A Multi-Architecture Study on CIFAR-10
+# **⚔️ PGD ADVERSARIAL ATTACK & DEFENSE — A MULTI-ARCHITECTURE STUDY ON CIFAR-10**
 
 > Một nghiên cứu **có thể tái lập đầy đủ** về tấn công đối kháng PGD/APGD, adversarial
 > training, và transferability — chạy chéo qua hai họ kiến trúc tiêu biểu (CNN ↔
